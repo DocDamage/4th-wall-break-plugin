@@ -1,6 +1,6 @@
-# FourthWallBreaks v4.0.0 for RPG Maker MZ
+# FourthWallBreaks v4.1.0 for RPG Maker MZ
 
-A staged 4th-wall break plugin for RPG Maker MZ. It uses four progressive screen-crack overlays and adds escalation commands, a breach meter, timed break sequences, battle hooks, note tags, UI corruption, text glitching, player-behavior tracking, common-event hooks, persistence options, debug tools, and accessibility controls.
+A staged 4th-wall break plugin for RPG Maker MZ. It uses four progressive screen-crack overlays and adds escalation commands, a breach meter, timed break sequences, battle hooks, note tags, UI corruption, text glitching, player-behavior tracking, common-event hooks, persistence options, debug tools, accessibility controls, input locks, custom reusable sequences, expanded region triggers, breach locking, and scanline performance caching.
 
 ## Install
 
@@ -41,6 +41,9 @@ The default crack mode is **hybrid**: stages 1–3 stack, and stage 4 becomes th
 | Pulse Crack | Brief zoom/opacity pulse |
 | Flash Crack | Safe screen flash, disabled by accessibility setting |
 | Lock / Unlock Crack Stage | Prevent or allow stage changes |
+| Lock / Unlock Input | Block or restore player input for a chosen frame count |
+| Lock / Unlock Breach Meter | Prevent or allow breach meter changes |
+| Register Custom Sequence | Save a custom sequence under a reusable name |
 | Set Crack Mode | Use replace, stack, or hybrid mode |
 | Run Break Sequence | Run a staged preset or custom JSON sequence |
 | Add / Set Breach Meter | Control the 0–100 breach meter |
@@ -66,6 +69,24 @@ FourthWallBreaks.runSequence("Player Spotted");
 FourthWallBreaks.runSequence("System Failure");
 ```
 
+Sequence step actions supported:
+
+```text
+stage
+escalate
+reduce
+clear
+pulse
+flash
+glitch
+speaker
+message
+breach
+commonEvent
+lockInput
+unlockInput
+```
+
 ## Common script calls
 
 ```js
@@ -80,6 +101,11 @@ FourthWallBreaks.unlock();
 FourthWallBreaks.setMode("stack");
 FourthWallBreaks.addBreach(10);
 FourthWallBreaks.setBreach(75);
+FourthWallBreaks.lockBreach();
+FourthWallBreaks.unlockBreach();
+FourthWallBreaks.lockInput(60);
+FourthWallBreaks.unlockInput();
+FourthWallBreaks.registerSequence("Custom Warning", "[{\"time\":0,\"action\":\"stage\",\"stage\":2}]");
 FourthWallBreaks.repair("oneStage", 60);
 FourthWallBreaks.glitchNextMessage(0.25, 1);
 FourthWallBreaks.glitchSpeakerName(0.35, 1);
@@ -87,7 +113,7 @@ FourthWallBreaks.glitchSpeakerName(0.35, 1);
 
 ## Message tokens
 
-`Play 4th Wall Break` message text supports these tokens:
+`Play 4th Wall Break` message text and sequence `message` steps support these tokens:
 
 ```text
 {player}
@@ -120,15 +146,19 @@ Supported on maps, events, enemies, skills/items, actors, and page comments wher
 <FWBGlitch: 0.25>
 <FWBCommonEvent: 12>
 <FWBForbiddenRoom>
+<FWBMapEnterStage: 2>
+<FWBMapEnterSequence: Reality Fracture>
 ```
 
 Enemy/battle-specific note tags:
 
 ```text
 <FWBOnAppearStage: 2>
+<FWBStage90: 1>
 <FWBStage75: 2>
 <FWBStage50: 3>
 <FWBStage25: 4>
+<FWBStage10: 4>
 <FWBSkillCrack: 2>
 <FWBSkillPulse>
 <FWBDeathCrack: 3>
@@ -141,6 +171,9 @@ Region note tags on maps:
 <FWBRegion13Pulse>
 <FWBRegion13Clear>
 <FWBRegion13Breach: 10>
+<FWBRegion13Sequence: Boss Break>
+<FWBRegion13Glitch: 0.25>
+<FWBRegion13CommonEvent: 5>
 ```
 
 You can also use `RegionRulesJson` in plugin parameters, for example:
@@ -165,7 +198,7 @@ The breach meter runs from 0 to 100. By default it is bound to crack stages:
 | 75–94 | 3 |
 | 95–100 | 4 |
 
-The thresholds are editable in plugin parameters.
+The thresholds are editable in plugin parameters. The breach meter can also be locked so scripted stage locks are not bypassed by breach changes.
 
 ## Persistence and hooks
 
@@ -217,7 +250,7 @@ Use `StageProfilesJson` in plugin parameters to override stage behavior:
 [
   {"stage":1,"opacity":70,"fadeIn":60,"shake":0},
   {"stage":2,"opacity":145,"fadeIn":35,"shake":2,"blendMode":"normal"},
-  {"stage":3,"opacity":190,"shake":4,"blendMode":"screen","chromatic":true},
+  {"stage":3,"opacity":190,"shake":4,"blendMode":"screen","chromatic":true,"chromaticOffset":2},
   {"stage":4,"opacity":235,"shake":7,"staticNoise":0.05,"scanlines":0.16}
 ]
 ```
