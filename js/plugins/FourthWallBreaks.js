@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.2.0 Feature-packed staged 4th-wall break engine with fully wired Phase 2 presence tiers, decay, bindings, event bus, condition engine, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
+ * @plugindesc v4.6.0 Feature-packed staged 4th-wall break engine with Phase 3 conditional sequences, validation, queue controls, presence tiers, event bus, condition engine, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -38,6 +38,11 @@
  *   FourthWallBreaks.addPresence(10)
  *   FourthWallBreaks.getPresenceTier()
  *   FourthWallBreaks.setPresenceDecay(true, 1, 900, 0)
+ *   FourthWallBreaks.validateSequence("[...]")
+ *   FourthWallBreaks.queueSequence("Boss Break")
+ *   FourthWallBreaks.pauseSequence()
+ *   FourthWallBreaks.resumeSequence()
+ *   FourthWallBreaks.stopSequence()
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
  *
  * Built-in sequence names:
@@ -85,7 +90,13 @@
  *
  * Custom sequence step actions:
  *   stage, escalate, reduce, clear, pulse, flash, glitch, speaker, message,
- *   breach, presence, commonEvent, lockInput, unlockInput, narrative, memory
+ *   breach, presence, commonEvent, lockInput, unlockInput, narrative, memory,
+ *   flag, wait, emit, sequence, stopSequence
+ *
+ * Conditional sequence fields:
+ *   if, unless, chance, chancePercent, once, cooldown, cooldownScope, id
+ *   once values: true/save, session, sequence
+ *   cooldownScope values: save, session, sequence
  *
  * Safe save/load illusions only. This plugin does not alter real save files except
  * for normal RPG Maker saved game data containing its own state.
@@ -410,6 +421,23 @@
  * @max 4
  * @default 3
  *
+ * @param DisableControlDistortion
+ * @text Disable Control Distortion
+ * @type boolean
+ * @default false
+ *
+ * @param MaxUiCorruptionLevel
+ * @text Max UI Corruption Level
+ * @type number
+ * @min 0
+ * @max 4
+ * @default 4
+ *
+ * @param FakeSystemEnabled
+ * @text Fake System Messages Enabled
+ * @type boolean
+ * @default true
+ *
  * @param DebugMode
  * @type boolean
  * @default false
@@ -514,6 +542,39 @@
  * @arg sequenceName
  * @type string
  * @default Custom Break
+ * @arg customJson
+ * @type note
+ * @default []
+ *
+ * @command QueueBreakSequence
+ * @text Queue Break Sequence
+ * @arg sequenceName
+ * @type string
+ * @default Reality Fracture
+ * @arg customJson
+ * @type note
+ * @default
+ *
+ * @command PauseSequence
+ * @text Pause Active Sequence
+ *
+ * @command ResumeSequence
+ * @text Resume Active Sequence
+ *
+ * @command StopSequence
+ * @text Stop Active Sequence
+ * @arg clearQueue
+ * @type boolean
+ * @default false
+ *
+ * @command ClearSequenceMemory
+ * @text Clear Sequence Memory
+ * @arg prefix
+ * @type string
+ * @default
+ *
+ * @command ValidateSequence
+ * @text Validate Sequence JSON
  * @arg customJson
  * @type note
  * @default []
@@ -696,6 +757,128 @@
  * @max 255
  * @default 255
  *
+ * @command RegisterTrigger
+ * @text Register Trigger
+ * @arg triggerId
+ * @type string
+ * @default
+ * @arg condition
+ * @type string
+ * @default presence GTE 75
+ * @arg action
+ * @type select
+ * @option stage
+ * @option sequence
+ * @option message
+ * @option breach
+ * @option presence
+ * @option pulse
+ * @option flash
+ * @option glitch
+ * @option commonEvent
+ * @option lockInput
+ * @option setNarrativeState
+ * @option uiCorruption
+ * @option fakeSystemMessage
+ * @default sequence
+ * @arg value
+ * @type string
+ * @default System Failure
+ * @arg cooldown
+ * @type number
+ * @default 0
+ * @arg once
+ * @type boolean
+ * @default false
+ * @arg scope
+ * @type select
+ * @option global
+ * @option map
+ * @option battle
+ * @option menu
+ * @option file
+ * @default global
+ *
+ * @command ClearTriggers
+ * @text Clear Triggers
+ * @arg scope
+ * @type string
+ * @default
+ *
+ * @command SetControlDistortion
+ * @text Set Control Distortion
+ * @arg duration
+ * @type number
+ * @default 180
+ * @arg invertX
+ * @type boolean
+ * @default false
+ * @arg invertY
+ * @type boolean
+ * @default false
+ * @arg driftChance
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @max 1
+ * @default 0
+ * @arg randomBlockChance
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @max 1
+ * @default 0
+ * @arg delayFrames
+ * @type number
+ * @min 0
+ * @default 0
+ * @arg forceDirection
+ * @type number
+ * @min 0
+ * @max 8
+ * @default 0
+ *
+ * @command ClearControlDistortion
+ * @text Clear Control Distortion
+ *
+ * @command SetUiCorruption
+ * @text Set UI Corruption
+ * @arg level
+ * @type number
+ * @min 0
+ * @max 4
+ * @default 1
+ * @arg duration
+ * @type number
+ * @default 0
+ *
+ * @command ClearUiCorruption
+ * @text Clear UI Corruption
+ *
+ * @command FakeSystemMessage
+ * @text Fake System Message
+ * @arg text
+ * @type multiline_string
+ * @default Runtime integrity warning.
+ * @arg speaker
+ * @type string
+ * @default SYSTEM
+ *
+ * @command FakeSaveFailure
+ * @text Fake Save Failure
+ * @arg text
+ * @type multiline_string
+ * @default Save failed. File integrity compromised.
+ *
+ * @command FakeOptionChange
+ * @text Fake Option Change
+ * @arg optionName
+ * @type string
+ * @default Volume
+ * @arg fakeValue
+ * @type string
+ * @default ???
+ *
  * @command DebugAction
  * @text Debug Action
  * @arg action
@@ -719,7 +902,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.2.0";
+    const VERSION = "4.6.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -1077,6 +1260,9 @@
         maxOverlayOpacity: clamp(pNumber("MaxOverlayOpacity", 255), 0, 255),
         menuCorruptionStage: clamp(pNumber("MenuCorruptionStage", 3), 0, 4),
         saveLoadCorruptionStage: clamp(pNumber("SaveLoadCorruptionStage", 3), 0, 4),
+        disableControlDistortion: pBool("DisableControlDistortion", false),
+        maxUiCorruptionLevel: clamp(pNumber("MaxUiCorruptionLevel", 4), 0, 4),
+        fakeSystemEnabled: pBool("FakeSystemEnabled", true),
         debugMode: pBool("DebugMode", false),
         debugOverlay: pBool("DebugOverlay", false)
     };
@@ -1183,8 +1369,20 @@
         }
     }
 
+    function normalizeConditionOperators(condition) {
+        return String(condition || "")
+            .replace(/\bGTE\b/gi, ">=")
+            .replace(/\bLTE\b/gi, "<=")
+            .replace(/\bGT\b/gi, ">")
+            .replace(/\bLT\b/gi, "<")
+            .replace(/\bEQ\b/gi, "==")
+            .replace(/\bNEQ?\b/gi, "!=")
+            .replace(/\bAND\b/gi, "&&")
+            .replace(/\bOR\b/gi, "||");
+    }
+
     FWB.evalCondition = function(condition) {
-        condition = String(condition || "").trim();
+        condition = normalizeConditionOperators(String(condition || "").trim());
         if (!condition) return true;
         if (!/^[A-Za-z0-9_ .!<>=&|+\-"']+$/.test(condition)) {
             logDebug("unsafe condition rejected", condition);
@@ -1336,6 +1534,28 @@
             narrativeState: "neutral",
             memory: {},
             flags: {},
+            triggerRules: [],
+            triggerOnce: {},
+            triggerCooldowns: {},
+            sessionTriggerOnce: {},
+            sessionTriggerCooldowns: {},
+            nextTriggerId: 1,
+            lastTriggerId: "",
+            controlDistortion: {
+                enabled: false,
+                remaining: 0,
+                invertX: false,
+                invertY: false,
+                driftChance: 0,
+                randomBlockChance: 0,
+                delayFrames: 0,
+                forceDirection: 0
+            },
+            controlDistortionQueue: [],
+            uiCorruptionLevel: 0,
+            uiCorruptionFrames: 0,
+            fakeOptionOverrides: {},
+            fakeSystemMessages: [],
             bindBreachToStage: Settings.bindBreachToStage,
             seenBreakIds: [],
             totalBreaks: 0,
@@ -1352,6 +1572,10 @@
                 mapVisits: {}
             },
             sequence: null,
+            sequenceQueue: [],
+            sequencePaused: false,
+            sequenceMemory: { once: {}, cooldowns: {} },
+            sequenceHistory: [],
             pulse: null,
             inputLockFrames: 0,
             textGlitchNext: null,
@@ -1389,9 +1613,24 @@
         if (!Array.isArray(s.cracks)) s.cracks = [];
         if (!Array.isArray(s.seenBreakIds)) s.seenBreakIds = [];
         if (!s.processedTriggers || typeof s.processedTriggers !== "object") s.processedTriggers = {};
+        if (!Array.isArray(s.triggerRules)) s.triggerRules = [];
+        if (!s.triggerOnce || typeof s.triggerOnce !== "object") s.triggerOnce = {};
+        if (!s.triggerCooldowns || typeof s.triggerCooldowns !== "object") s.triggerCooldowns = {};
+        if (!s.sessionTriggerOnce || typeof s.sessionTriggerOnce !== "object") s.sessionTriggerOnce = {};
+        if (!s.sessionTriggerCooldowns || typeof s.sessionTriggerCooldowns !== "object") s.sessionTriggerCooldowns = {};
+        if (!s.controlDistortion || typeof s.controlDistortion !== "object") s.controlDistortion = def.controlDistortion;
+        if (!Array.isArray(s.controlDistortionQueue)) s.controlDistortionQueue = [];
+        if (!s.fakeOptionOverrides || typeof s.fakeOptionOverrides !== "object") s.fakeOptionOverrides = {};
+        if (!Array.isArray(s.fakeSystemMessages)) s.fakeSystemMessages = [];
         if (!s.triggerCooldowns || typeof s.triggerCooldowns !== "object") s.triggerCooldowns = {};
         if (!s.memory || typeof s.memory !== "object") s.memory = {};
         if (!s.flags || typeof s.flags !== "object") s.flags = {};
+        if (!Array.isArray(s.sequenceQueue)) s.sequenceQueue = [];
+        if (typeof s.sequencePaused !== "boolean") s.sequencePaused = false;
+        if (!s.sequenceMemory || typeof s.sequenceMemory !== "object") s.sequenceMemory = { once: {}, cooldowns: {} };
+        if (!s.sequenceMemory.once || typeof s.sequenceMemory.once !== "object") s.sequenceMemory.once = {};
+        if (!s.sequenceMemory.cooldowns || typeof s.sequenceMemory.cooldowns !== "object") s.sequenceMemory.cooldowns = {};
+        if (!Array.isArray(s.sequenceHistory)) s.sequenceHistory = [];
         if (!Number.isFinite(Number(s.presence))) s.presence = 0;
         if (!s.presenceTier) s.presenceTier = presenceTierName(s.presence);
         if (!Number.isFinite(Number(s.presenceDecayCounter))) s.presenceDecayCounter = 0;
@@ -1842,6 +2081,338 @@
     };
 
     // -------------------------------------------------------------------------
+    // Phase 4 Trigger Engine
+    // -------------------------------------------------------------------------
+
+    function stableHash(text) {
+        text = String(text || "");
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+        return Math.abs(hash).toString(36);
+    }
+
+    function triggerId(rule) {
+        return String(rule.id || rule.triggerId || `trigger_${stableHash(JSON.stringify(rule))}`);
+    }
+
+    function normalizeTriggerRule(rule, sourceKey, defaultScope) {
+        if (!rule || typeof rule !== "object") return null;
+        const normalized = Object.assign({}, rule);
+        normalized.id = triggerId(Object.assign({ sourceKey: sourceKey }, normalized));
+        normalized.condition = String(normalized.condition || normalized.if || "true");
+        normalized.action = String(normalized.action || "sequence");
+        normalized.value = normalized.value !== undefined ? normalized.value : (normalized.sequenceName || normalized.message || normalized.stage || normalized.amount || "");
+        normalized.scope = String(normalized.scope || defaultScope || "global").toLowerCase();
+        normalized.sourceKey = String(sourceKey || normalized.sourceKey || "");
+        normalized.cooldown = Math.max(0, Number(normalized.cooldown || 0));
+        const onceRaw = normalized.once;
+        const onceText = String(onceRaw || "").toLowerCase();
+        normalized.once = onceRaw === true || onceText === "true" || onceText === "save";
+        normalized.sessionOnce = onceText === "session";
+        return normalized;
+    }
+
+    FWB.registerTrigger = function(rule) {
+        const s = state();
+        const normalized = normalizeTriggerRule(rule, rule && rule.sourceKey, rule && rule.scope);
+        if (!normalized) return null;
+        const index = s.triggerRules.findIndex(existing => String(existing.id) === String(normalized.id));
+        if (index >= 0) s.triggerRules[index] = normalized;
+        else s.triggerRules.push(normalized);
+        markSyncDirty();
+        FWB.emit("triggerRegistered", { trigger: normalized });
+        return normalized.id;
+    };
+
+    FWB.clearTriggers = function(scopeOrPrefix) {
+        const s = state();
+        const query = String(scopeOrPrefix || "");
+        if (!query) {
+            s.triggerRules = [];
+        } else {
+            s.triggerRules = s.triggerRules.filter(rule => String(rule.scope || "") !== query && String(rule.id || "").indexOf(query) !== 0 && String(rule.sourceKey || "").indexOf(query) !== 0);
+        }
+        markSyncDirty();
+    };
+
+    function triggerScopeMatches(rule, scene) {
+        const scope = String(rule.scope || "global").toLowerCase();
+        const kind = sceneKind(scene || (root.SceneManager && SceneManager._scene));
+        if (scope === "global" || scope === "save" || scope === "session") return true;
+        if (scope === "map") return kind === "map";
+        if (scope === "battle") return kind === "battle";
+        if (scope === "menu") return kind === "menu";
+        if (scope === "file") return kind === "file";
+        return true;
+    }
+
+    function runTriggerAction(rule) {
+        const action = String(rule.action || "sequence").toLowerCase();
+        const value = rule.value;
+        switch (action) {
+            case "stage":
+            case "setstage":
+                FWB.setStage(Number(value || rule.stage || 1), { fadeFrames: rule.fadeFrames || 35, source: "trigger:" + rule.id });
+                break;
+            case "sequence":
+            case "runsequence":
+                FWB.runSequence(String(value || rule.sequenceName || "Reality Fracture"));
+                break;
+            case "message":
+                if (root.$gameMessage) {
+                    if (rule.speaker && $gameMessage.setSpeakerName) $gameMessage.setSpeakerName(tokenReplace(rule.speaker));
+                    $gameMessage.add(tokenReplace(value || rule.text || ""));
+                }
+                break;
+            case "breach":
+                FWB.addBreach(Number(value || rule.amount || 0));
+                break;
+            case "presence":
+                FWB.addPresence(Number(value || rule.amount || 0));
+                break;
+            case "pulse":
+                FWB.pulse(Number(rule.duration || 60), Number(value || rule.intensity || 0.5));
+                break;
+            case "flash":
+                FWB.flash(Number(rule.duration || 24), Number(value || rule.opacity || 160));
+                break;
+            case "glitch":
+                FWB.glitchNextMessage(Number(value || rule.amount || 0.2), Number(rule.lines || 1));
+                break;
+            case "commonevent":
+                safeReserveCommonEvent(Number(value || rule.idValue || rule.commonEventId || 0));
+                break;
+            case "lockinput":
+                FWB.lockInput(Number(value || rule.frames || 60));
+                break;
+            case "setnarrativestate":
+            case "narrative":
+                FWB.setNarrativeState(String(value || rule.state || "neutral"));
+                break;
+            case "uicorruption":
+                FWB.setUiCorruption(Number(value || rule.level || 1), Number(rule.duration || 0));
+                break;
+            case "fakesystemmessage":
+                FWB.fakeSystemMessage(String(value || rule.text || "Runtime integrity warning."), String(rule.speaker || "SYSTEM"));
+                break;
+        }
+        state().lastTriggerId = String(rule.id || "");
+        FWB.emit("triggerFired", { trigger: rule });
+    }
+
+    function updateTriggers(scene) {
+        const s = state();
+        if (!Array.isArray(s.triggerRules) || s.triggerRules.length <= 0) return;
+        const now = root.Graphics && Graphics.frameCount ? Graphics.frameCount : 0;
+        s.triggerRules.slice().forEach(rule => {
+            if (!triggerScopeMatches(rule, scene)) return;
+            const id = String(rule.id || "");
+            if (rule.once && s.triggerOnce[id]) return;
+            if (rule.sessionOnce && s.sessionTriggerOnce[id]) return;
+            if (rule.cooldown > 0) {
+                const last = Number(s.triggerCooldowns[id] || s.sessionTriggerCooldowns[id] || -999999999);
+                if (now - last < rule.cooldown) return;
+            }
+            if (!FWB.evalCondition(rule.condition)) return;
+            if (rule.once) s.triggerOnce[id] = true;
+            if (rule.sessionOnce) s.sessionTriggerOnce[id] = true;
+            if (rule.cooldown > 0) {
+                if (String(rule.cooldownScope || "save").toLowerCase() === "session") s.sessionTriggerCooldowns[id] = now;
+                else s.triggerCooldowns[id] = now;
+            }
+            runTriggerAction(rule);
+            markSyncDirty();
+        });
+    }
+
+    function parseTriggerOptions(parts) {
+        const options = {};
+        parts.forEach(part => {
+            const m = /^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(part);
+            if (m) options[m[1]] = m[2];
+        });
+        return options;
+    }
+
+    function parseTriggerTagContent(content, sourceKey, defaultScope) {
+        const split = String(content || "").split(/\s*->\s*/);
+        if (split.length < 2) return;
+        const condition = split[0].trim();
+        const rightParts = split.slice(1).join("->").split("|");
+        const actionPart = rightParts.shift() || "";
+        const options = parseTriggerOptions(rightParts);
+        const actionMatch = /^\s*([A-Za-z0-9_]+)\s*[:=]\s*(.*?)\s*$/.exec(actionPart);
+        const action = actionMatch ? actionMatch[1] : String(options.action || "sequence");
+        const value = actionMatch ? actionMatch[2] : String(options.value || "");
+        FWB.registerTrigger(Object.assign(options, {
+            id: options.id || `${sourceKey || "note"}_${stableHash(content)}`,
+            condition: condition,
+            action: action,
+            value: value,
+            scope: options.scope || defaultScope || "global",
+            sourceKey: sourceKey
+        }));
+    }
+
+    function parseTriggerTags(note, sourceKey, defaultScope) {
+        note = String(note || "");
+        const re = /<\s*FWBTrigger\s*:\s*([^>]+)>/gi;
+        let match;
+        while ((match = re.exec(note))) {
+            parseTriggerTagContent(match[1], sourceKey, defaultScope);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 5 Control Distortion
+    // -------------------------------------------------------------------------
+
+    let fwbOriginalExecuteMove = null;
+    let fwbApplyingDelayedMove = false;
+
+    FWB.setControlDistortion = function(options) {
+        const s = state();
+        if (Settings.disableControlDistortion || access().disableStage4) return false;
+        options = options || {};
+        s.controlDistortion = {
+            enabled: true,
+            remaining: Math.max(1, Number(options.duration || options.frames || 180)),
+            invertX: !!options.invertX,
+            invertY: !!options.invertY,
+            driftChance: clamp(Number(options.driftChance !== undefined ? options.driftChance : options.drift || 0), 0, 1),
+            randomBlockChance: clamp(Number(options.randomBlockChance || options.blockChance || 0), 0, 1),
+            delayFrames: Math.max(0, Number(options.delayFrames || 0)),
+            forceDirection: Number(options.forceDirection || 0)
+        };
+        s.controlDistortionQueue = [];
+        markSyncDirty();
+        FWB.emit("controlDistortionStarted", { controlDistortion: s.controlDistortion });
+        return true;
+    };
+
+    FWB.clearControlDistortion = function() {
+        const s = state();
+        s.controlDistortion = Object.assign({}, defaultState().controlDistortion);
+        s.controlDistortionQueue = [];
+        markSyncDirty();
+        FWB.emit("controlDistortionCleared", {});
+    };
+
+    FWB.getControlDistortion = function() {
+        return Object.assign({}, state().controlDistortion || {});
+    };
+
+    function isControlDistortionActive() {
+        const s = state();
+        const d = s.controlDistortion || {};
+        return !!d.enabled && Number(d.remaining || 0) > 0 && !Settings.disableControlDistortion;
+    }
+
+    function distortDirection(direction) {
+        const d = state().controlDistortion || {};
+        direction = Number(direction || 0);
+        if (d.forceDirection && [2,4,6,8].includes(Number(d.forceDirection))) direction = Number(d.forceDirection);
+        if (d.invertX) {
+            if (direction === 4) direction = 6;
+            else if (direction === 6) direction = 4;
+        }
+        if (d.invertY) {
+            if (direction === 2) direction = 8;
+            else if (direction === 8) direction = 2;
+        }
+        if (Number(d.driftChance || 0) > 0 && Math.random() < Number(d.driftChance || 0)) {
+            direction = [2,4,6,8][randomInt(0, 3)];
+        }
+        return direction;
+    }
+
+    function updateControlDistortion(scene) {
+        const s = state();
+        const d = s.controlDistortion || {};
+        if (!d.enabled) return;
+        if (Number(d.remaining || 0) > 0) d.remaining -= 1;
+        if (Number(d.remaining || 0) <= 0) {
+            FWB.clearControlDistortion();
+            return;
+        }
+        if (Array.isArray(s.controlDistortionQueue) && s.controlDistortionQueue.length && fwbOriginalExecuteMove && root.$gamePlayer) {
+            s.controlDistortionQueue.forEach(item => item.frames -= 1);
+            const ready = s.controlDistortionQueue.filter(item => item.frames <= 0);
+            s.controlDistortionQueue = s.controlDistortionQueue.filter(item => item.frames > 0);
+            ready.forEach(item => {
+                fwbApplyingDelayedMove = true;
+                try { fwbOriginalExecuteMove.call($gamePlayer, item.direction); }
+                finally { fwbApplyingDelayedMove = false; }
+            });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 6 UI Corruption and Fake System Layer
+    // -------------------------------------------------------------------------
+
+    FWB.setUiCorruption = function(level, duration) {
+        const s = state();
+        s.uiCorruptionLevel = clamp(Number(level || 0), 0, Settings.maxUiCorruptionLevel);
+        s.uiCorruptionFrames = Math.max(0, Number(duration || 0));
+        markSyncDirty();
+        FWB.emit("uiCorruptionChanged", { level: s.uiCorruptionLevel, duration: s.uiCorruptionFrames });
+        return s.uiCorruptionLevel;
+    };
+
+    FWB.clearUiCorruption = function() {
+        const s = state();
+        s.uiCorruptionLevel = 0;
+        s.uiCorruptionFrames = 0;
+        markSyncDirty();
+        FWB.emit("uiCorruptionChanged", { level: 0 });
+    };
+
+    function uiCorruptionLevel() {
+        const s = state();
+        return clamp(Number(s.uiCorruptionLevel || 0), 0, Settings.maxUiCorruptionLevel);
+    }
+
+    function updateUiCorruption(scene) {
+        const s = state();
+        if (Number(s.uiCorruptionFrames || 0) > 0) {
+            s.uiCorruptionFrames -= 1;
+            if (s.uiCorruptionFrames <= 0) FWB.clearUiCorruption();
+        }
+    }
+
+    FWB.fakeSystemMessage = function(text, speaker) {
+        if (!Settings.fakeSystemEnabled) return false;
+        const s = state();
+        const payload = { text: tokenReplace(text || "Runtime integrity warning."), speaker: tokenReplace(speaker || "SYSTEM") };
+        s.fakeSystemMessages.push(payload);
+        if (root.$gameMessage) {
+            if (payload.speaker && $gameMessage.setSpeakerName) $gameMessage.setSpeakerName(payload.speaker);
+            $gameMessage.add(payload.text);
+        }
+        FWB.emit("fakeSystemMessage", payload);
+        return true;
+    };
+
+    FWB.fakeSaveFailure = function(text) {
+        return FWB.fakeSystemMessage(text || "Save failed. File integrity compromised.", "SYSTEM");
+    };
+
+    FWB.fakeOptionChange = function(optionName, fakeValue) {
+        const s = state();
+        s.fakeOptionOverrides[String(optionName || "")] = String(fakeValue || "???");
+        markSyncDirty();
+        FWB.emit("fakeOptionChanged", { optionName: optionName, fakeValue: fakeValue });
+    };
+
+    FWB.clearFakeOptionChange = function(optionName) {
+        const s = state();
+        if (optionName) delete s.fakeOptionOverrides[String(optionName)];
+        else s.fakeOptionOverrides = {};
+        markSyncDirty();
+    };
+
+    // -------------------------------------------------------------------------
     // Glitch text and messages
     // -------------------------------------------------------------------------
 
@@ -1958,45 +2529,251 @@
     // Sequences
     // -------------------------------------------------------------------------
 
+    const SEQUENCE_ACTIONS = [
+        "stage", "setstage", "escalate", "reduce", "clear", "pulse", "flash", "glitch", "speaker", "message",
+        "breach", "commonevent", "lockinput", "unlockinput", "presence", "narrative", "setnarrativestate",
+        "memory", "flag", "wait", "emit", "sequence", "runsequence", "stopsequence"
+    ];
+
+    const SESSION_SEQUENCE_ONCE = {};
+    const SESSION_SEQUENCE_COOLDOWNS = {};
+
+    function normalizeSequenceInput(input) {
+        if (Array.isArray(input)) return JSON.parse(JSON.stringify(input));
+        if (typeof input === "string") return tryParseJson(input, null);
+        return null;
+    }
+
+    function normalizeSequenceSteps(steps) {
+        if (!Array.isArray(steps)) return [];
+        return JSON.parse(JSON.stringify(steps)).sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+    }
+
+    function sequenceStepKey(step, sequenceName, index) {
+        const explicit = String(step && (step.id || step.name || step.key) || "").trim();
+        if (explicit) return explicit;
+        return `${sequenceName || "Sequence"}:${index || 0}:${Number(step && step.time || 0)}:${String(step && step.action || "stage")}`;
+    }
+
+    function validateConditionField(value, label, errors, index) {
+        if (value === undefined || value === null || value === "") return;
+        const text = String(value);
+        if (!/^[A-Za-z0-9_ .!<>=&|+\-"']+$/.test(text)) {
+            errors.push(`Step ${index}: ${label} contains unsupported characters.`);
+        }
+    }
+
+    FWB.validateSequence = function(jsonOrArray) {
+        const errors = [];
+        const warnings = [];
+        const steps = normalizeSequenceInput(jsonOrArray);
+        if (!Array.isArray(steps)) {
+            return { ok: false, errors: ["Sequence must be a JSON array of step objects."], warnings: [], steps: [] };
+        }
+        const actionMap = SEQUENCE_ACTIONS.map(a => a.toLowerCase());
+        steps.forEach((step, index) => {
+            if (!step || typeof step !== "object" || Array.isArray(step)) {
+                errors.push(`Step ${index}: must be an object.`);
+                return;
+            }
+            const action = String(step.action || "stage");
+            const actionKey = action.toLowerCase();
+            if (!actionMap.includes(actionKey)) {
+                errors.push(`Step ${index}: unknown action '${action}'.`);
+            }
+            const time = Number(step.time || 0);
+            if (!Number.isFinite(time) || time < 0) errors.push(`Step ${index}: time must be a number >= 0.`);
+            validateConditionField(step.if, "if", errors, index);
+            validateConditionField(step.unless, "unless", errors, index);
+            if (step.chance !== undefined) {
+                const chance = Number(step.chance);
+                if (!Number.isFinite(chance) || chance < 0 || chance > 1) errors.push(`Step ${index}: chance must be between 0 and 1.`);
+            }
+            if (step.chancePercent !== undefined) {
+                const chancePercent = Number(step.chancePercent);
+                if (!Number.isFinite(chancePercent) || chancePercent < 0 || chancePercent > 100) errors.push(`Step ${index}: chancePercent must be between 0 and 100.`);
+            }
+            if (step.cooldown !== undefined) {
+                const cooldown = Number(step.cooldown);
+                if (!Number.isFinite(cooldown) || cooldown < 0) errors.push(`Step ${index}: cooldown must be a number >= 0.`);
+            }
+            if ((step.once || step.cooldown) && !(step.id || step.name || step.key)) {
+                warnings.push(`Step ${index}: once/cooldown has no id; an auto key will be used.`);
+            }
+            if (actionKey === "message" && !step.text) warnings.push(`Step ${index}: message action has no text.`);
+            if (actionKey === "commonevent" && !(step.id || step.commonEventId || step.eventId || step.ce)) warnings.push(`Step ${index}: commonEvent action has no id/commonEventId.`);
+        });
+        return { ok: errors.length === 0, errors: errors, warnings: warnings, steps: normalizeSequenceSteps(steps) };
+    };
+
+    function logSequenceValidation(result, name) {
+        if (!Settings.debugMode || !result) return;
+        if (result.errors && result.errors.length) console.warn(`[${PLUGIN_NAME}] sequence validation errors for ${name}:`, result.errors);
+        if (result.warnings && result.warnings.length) console.warn(`[${PLUGIN_NAME}] sequence validation warnings for ${name}:`, result.warnings);
+    }
+
     FWB.registerSequence = function(name, customJson) {
         const sequenceName = String(name || "").trim();
-        const steps = tryParseJson(customJson, null);
-        if (!sequenceName || !Array.isArray(steps)) return false;
-        SEQUENCES[sequenceName] = JSON.parse(JSON.stringify(steps)).sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+        const result = FWB.validateSequence(customJson);
+        logSequenceValidation(result, sequenceName || "Custom");
+        if (!sequenceName || !result.ok) return false;
+        SEQUENCES[sequenceName] = result.steps;
+        FWB.emit("sequenceRegistered", { name: sequenceName, steps: result.steps });
         return true;
     };
 
-    FWB.runSequence = function(name, customJson) {
-        const s = state();
-        let steps = null;
-        if (customJson) steps = tryParseJson(customJson, null);
-        if (!Array.isArray(steps)) steps = SEQUENCES[String(name || "Reality Fracture")];
-        if (!Array.isArray(steps)) steps = SEQUENCES["Reality Fracture"];
-        s.sequence = {
+    FWB.unregisterSequence = function(name) {
+        const sequenceName = String(name || "").trim();
+        if (!sequenceName || !SEQUENCES[sequenceName]) return false;
+        delete SEQUENCES[sequenceName];
+        FWB.emit("sequenceUnregistered", { name: sequenceName });
+        return true;
+    };
+
+    FWB.hasSequence = function(name) {
+        return !!SEQUENCES[String(name || "")];
+    };
+
+    FWB.listSequences = function() {
+        return Object.keys(SEQUENCES).sort();
+    };
+
+    function makeSequenceRuntime(name, steps) {
+        return {
             name: String(name || "Custom"),
             frame: 0,
             index: 0,
-            steps: JSON.parse(JSON.stringify(steps)).sort((a, b) => Number(a.time || 0) - Number(b.time || 0))
+            waitFrames: 0,
+            loopCount: 0,
+            localOnce: {},
+            localCooldowns: {},
+            steps: normalizeSequenceSteps(steps)
         };
+    }
+
+    FWB.runSequence = function(name, customJson, options) {
+        options = options || {};
+        const s = state();
+        let steps = null;
+        if (customJson) steps = normalizeSequenceInput(customJson);
+        if (!Array.isArray(steps)) steps = SEQUENCES[String(name || "Reality Fracture")];
+        if (!Array.isArray(steps)) steps = SEQUENCES["Reality Fracture"];
+        const result = FWB.validateSequence(steps);
+        logSequenceValidation(result, String(name || "Custom"));
+        if (!result.ok) return false;
+        const runtime = makeSequenceRuntime(name || "Custom", result.steps);
+        const mode = String(options.mode || "replace").toLowerCase();
+        if (mode === "queue" && s.sequence) {
+            s.sequenceQueue = s.sequenceQueue || [];
+            s.sequenceQueue.push(runtime);
+            FWB.emit("sequenceQueued", { name: runtime.name, queueLength: s.sequenceQueue.length });
+            return true;
+        }
+        s.sequence = runtime;
+        s.sequencePaused = false;
         logDebug("sequence", s.sequence.name, s.sequence.steps);
         FWB.emit("sequenceStarted", { name: s.sequence.name, steps: s.sequence.steps });
+        return true;
     };
 
-    function executeSequenceStep(step) {
-        if (!step) return;
+    FWB.queueSequence = function(name, customJson) {
+        return FWB.runSequence(name, customJson, { mode: "queue" });
+    };
+
+    FWB.pauseSequence = function() {
         const s = state();
-        const stepId = String(step.id || step.name || "");
-        if (step.if && !FWB.evalCondition(step.if)) return;
-        if (step.chance !== undefined && Math.random() > Number(step.chance)) return;
-        if (step.once && stepId && s.processedTriggers[`sequenceStep_${stepId}`]) return;
-        if (step.cooldown && stepId) {
-            const key = `sequenceCooldown_${stepId}`;
-            const now = root.Graphics && Graphics.frameCount ? Graphics.frameCount : 0;
-            if (s.triggerCooldowns && s.triggerCooldowns[key] && now - s.triggerCooldowns[key] < Number(step.cooldown)) return;
-            s.triggerCooldowns = s.triggerCooldowns || {};
-            s.triggerCooldowns[key] = now;
+        if (!s.sequence) return false;
+        s.sequencePaused = true;
+        FWB.emit("sequencePaused", { name: s.sequence.name });
+        return true;
+    };
+
+    FWB.resumeSequence = function() {
+        const s = state();
+        if (!s.sequence) return false;
+        s.sequencePaused = false;
+        FWB.emit("sequenceResumed", { name: s.sequence.name });
+        return true;
+    };
+
+    FWB.stopSequence = function(clearQueue) {
+        const s = state();
+        const old = s.sequence ? s.sequence.name : "";
+        s.sequence = null;
+        s.sequencePaused = false;
+        if (clearQueue) s.sequenceQueue = [];
+        FWB.emit("sequenceStopped", { name: old, clearQueue: !!clearQueue });
+        return !!old;
+    };
+
+    FWB.clearSequenceMemory = function(prefix) {
+        const s = state();
+        s.sequenceMemory = s.sequenceMemory || { once: {}, cooldowns: {} };
+        s.sequenceMemory.once = s.sequenceMemory.once || {};
+        s.sequenceMemory.cooldowns = s.sequenceMemory.cooldowns || {};
+        const pfx = String(prefix || "");
+        Object.keys(s.sequenceMemory.once).forEach(key => { if (!pfx || key.indexOf(pfx) === 0) delete s.sequenceMemory.once[key]; });
+        Object.keys(s.sequenceMemory.cooldowns).forEach(key => { if (!pfx || key.indexOf(pfx) === 0) delete s.sequenceMemory.cooldowns[key]; });
+        Object.keys(SESSION_SEQUENCE_ONCE).forEach(key => { if (!pfx || key.indexOf(pfx) === 0) delete SESSION_SEQUENCE_ONCE[key]; });
+        Object.keys(SESSION_SEQUENCE_COOLDOWNS).forEach(key => { if (!pfx || key.indexOf(pfx) === 0) delete SESSION_SEQUENCE_COOLDOWNS[key]; });
+        markSyncDirty();
+        FWB.emit("sequenceMemoryCleared", { prefix: pfx });
+    };
+
+    FWB.isSequenceRunning = function() {
+        return !!state().sequence;
+    };
+
+    FWB.currentSequence = function() {
+        const seq = state().sequence;
+        return seq ? JSON.parse(JSON.stringify(seq)) : null;
+    };
+
+    function sequenceOnceStore(scope, runtime) {
+        const s = state();
+        s.sequenceMemory = s.sequenceMemory || { once: {}, cooldowns: {} };
+        if (scope === "session") return SESSION_SEQUENCE_ONCE;
+        if (scope === "sequence") return runtime.localOnce || (runtime.localOnce = {});
+        return s.sequenceMemory.once || (s.sequenceMemory.once = {});
+    }
+
+    function sequenceCooldownStore(scope, runtime) {
+        const s = state();
+        s.sequenceMemory = s.sequenceMemory || { once: {}, cooldowns: {} };
+        if (scope === "session") return SESSION_SEQUENCE_COOLDOWNS;
+        if (scope === "sequence") return runtime.localCooldowns || (runtime.localCooldowns = {});
+        return s.sequenceMemory.cooldowns || (s.sequenceMemory.cooldowns = {});
+    }
+
+    function shouldExecuteSequenceStep(step, runtime, index) {
+        if (!step) return false;
+        const key = sequenceStepKey(step, runtime.name, index);
+        if (step.if && !FWB.evalCondition(step.if)) return false;
+        if (step.unless && FWB.evalCondition(step.unless)) return false;
+        if (step.chance !== undefined && Math.random() > clamp(Number(step.chance), 0, 1)) return false;
+        if (step.chancePercent !== undefined && Math.random() * 100 > clamp(Number(step.chancePercent), 0, 100)) return false;
+        if (step.once) {
+            let onceScope = String(step.once === true ? "save" : step.once).toLowerCase();
+            if (!["save", "session", "sequence", "true"].includes(onceScope)) onceScope = "save";
+            if (onceScope === "true") onceScope = "save";
+            const store = sequenceOnceStore(onceScope, runtime);
+            if (store[key]) return false;
+            store[key] = true;
         }
-        if (step.once && stepId) s.processedTriggers[`sequenceStep_${stepId}`] = true;
+        if (step.cooldown) {
+            const scope = String(step.cooldownScope || "save").toLowerCase();
+            const store = sequenceCooldownStore(scope, runtime);
+            const now = root.Graphics && Graphics.frameCount ? Graphics.frameCount : 0;
+            const last = Number(store[key] || -999999999);
+            if (now - last < Number(step.cooldown)) return false;
+            store[key] = now;
+        }
+        return true;
+    }
+
+    function executeSequenceStep(step, runtime, index) {
+        if (!step || !runtime) return;
+        if (!shouldExecuteSequenceStep(step, runtime, index)) return;
         const action = String(step.action || "stage").toLowerCase();
         switch (action) {
             case "stage":
@@ -2033,18 +2810,18 @@
             case "breach":
                 FWB.addBreach(Number(step.amount || 0), { fadeFrames: step.fadeFrames });
                 break;
+            case "presence":
+                if (step.value !== undefined) FWB.setPresence(Number(step.value));
+                else FWB.addPresence(Number(step.amount || 0));
+                break;
             case "commonevent":
-                safeReserveCommonEvent(Number(step.id || step.commonEventId || 0));
+                safeReserveCommonEvent(Number(step.commonEventId || step.eventId || step.ce || step.id || 0));
                 break;
             case "lockinput":
                 FWB.lockInput(Number(step.frames || step.duration || 60));
                 break;
             case "unlockinput":
                 FWB.unlockInput();
-                break;
-            case "presence":
-                if (step.value !== undefined) FWB.setPresence(Number(step.value));
-                else FWB.addPresence(Number(step.amount || 0));
                 break;
             case "narrative":
             case "setnarrativestate":
@@ -2053,7 +2830,47 @@
             case "memory":
                 if (step.key) FWB.memory.set(step.key, step.value);
                 break;
+            case "flag":
+                if (step.key) state().flags[step.key] = step.value !== undefined ? step.value : true;
+                markSyncDirty();
+                break;
+            case "wait":
+                runtime.waitFrames = Math.max(runtime.waitFrames || 0, Number(step.frames || step.duration || 30));
+                break;
+            case "emit":
+                FWB.emit(String(step.eventName || step.name || "sequenceEvent"), step.payload || { sequence: runtime.name, step: sequenceStepKey(step, runtime.name, index) });
+                break;
+            case "sequence":
+            case "runsequence":
+                FWB.runSequence(String(step.sequenceName || step.name || "Reality Fracture"), step.customJson || "", { mode: String(step.mode || "replace") });
+                break;
+            case "trigger":
+            case "registertrigger":
+                FWB.registerTrigger(step.rule || step);
+                break;
+            case "controldistortion":
+                FWB.setControlDistortion(step);
+                break;
+            case "clearcontroldistortion":
+                FWB.clearControlDistortion();
+                break;
+            case "uicorruption":
+                FWB.setUiCorruption(Number(step.level || step.value || 1), Number(step.duration || 0));
+                break;
+            case "clearuicorruption":
+                FWB.clearUiCorruption();
+                break;
+            case "fakesystemmessage":
+                FWB.fakeSystemMessage(String(step.text || step.value || "Runtime integrity warning."), String(step.speaker || "SYSTEM"));
+                break;
+            case "fakesavefailure":
+                FWB.fakeSaveFailure(String(step.text || step.value || ""));
+                break;
+            case "stopsequence":
+                FWB.stopSequence(!!step.clearQueue);
+                break;
         }
+        FWB.emit("sequenceStepExecuted", { sequence: runtime.name, step: step, index: index, action: action });
     }
 
     // -------------------------------------------------------------------------
@@ -2243,7 +3060,7 @@
         overlay._fwbDebugText.visible = true;
         overlay._fwbDebugText.x = 8;
         overlay._fwbDebugText.y = 8;
-        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}`;
+        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}${s.sequencePaused ? " PAUSED" : ""}  Queue: ${(s.sequenceQueue || []).length}\nTriggers: ${(s.triggerRules || []).length} Last: ${s.lastTriggerId || "none"}\nUI: ${s.uiCorruptionLevel || 0}  Control: ${(s.controlDistortion && s.controlDistortion.enabled) ? s.controlDistortion.remaining : 0}`;
     }
 
     function updateOverlay(scene) {
@@ -2322,18 +3139,50 @@
         s.cracks = s.cracks.filter(crack => !(crack.removing && Number(crack.opacity || 0) <= 0));
     }
 
+    function startNextQueuedSequence() {
+        const s = state();
+        if (s.sequence || !Array.isArray(s.sequenceQueue) || s.sequenceQueue.length <= 0) return false;
+        s.sequence = s.sequenceQueue.shift();
+        s.sequencePaused = false;
+        FWB.emit("sequenceStarted", { name: s.sequence.name, steps: s.sequence.steps, queued: true });
+        return true;
+    }
+
+    function finishSequence(runtime) {
+        const s = state();
+        const name = runtime ? runtime.name : "";
+        s.sequenceHistory = s.sequenceHistory || [];
+        s.sequenceHistory.push({ name: name, endedAt: root.Graphics && Graphics.frameCount ? Graphics.frameCount : 0 });
+        if (s.sequenceHistory.length > 20) s.sequenceHistory.shift();
+        s.sequence = null;
+        s.sequencePaused = false;
+        FWB.emit("sequenceEnded", { name: name });
+        startNextQueuedSequence();
+    }
+
     function updateSequence() {
         const s = state();
-        if (!s.sequence) return;
-        while (s.sequence.index < s.sequence.steps.length && Number(s.sequence.steps[s.sequence.index].time || 0) <= s.sequence.frame) {
-            executeSequenceStep(s.sequence.steps[s.sequence.index]);
-            s.sequence.index += 1;
+        if (!s.sequence) {
+            startNextQueuedSequence();
+            return;
         }
+        if (s.sequencePaused) return;
+        if (Number(s.sequence.waitFrames || 0) > 0) {
+            s.sequence.waitFrames -= 1;
+            return;
+        }
+        while (s.sequence && s.sequence.index < s.sequence.steps.length && Number(s.sequence.steps[s.sequence.index].time || 0) <= s.sequence.frame) {
+            const runtime = s.sequence;
+            const index = runtime.index;
+            executeSequenceStep(runtime.steps[index], runtime, index);
+            if (s.sequence !== runtime) return;
+            runtime.index += 1;
+            if (Number(runtime.waitFrames || 0) > 0) break;
+        }
+        if (!s.sequence) return;
         s.sequence.frame += 1;
         if (s.sequence.index >= s.sequence.steps.length) {
-            const name = s.sequence.name;
-            s.sequence = null;
-            FWB.emit("sequenceEnded", { name: name });
+            finishSequence(s.sequence);
         }
     }
 
@@ -2422,9 +3271,12 @@
     FWB.update = function(scene) {
         updatePresenceDecay(scene);
         updateSequence();
+        updateTriggers(scene);
         updateCrackFades();
         updatePulseAndShake();
+        updateControlDistortion(scene);
         updateInputLock();
+        updateUiCorruption(scene);
         updateRandomSubtle(scene);
         updateIdleTracking(scene);
         syncVariablesAndSwitches();
@@ -2447,6 +3299,26 @@
         if (setPresence !== null) FWB.setPresence(Number(setPresence), { source: sourceKey });
         const addPresence = noteValue(note, ["FWBAddPresence", "FourthWallAddPresence"]);
         if (addPresence !== null) FWB.addPresence(Number(addPresence), { source: sourceKey });
+
+        const uiCorruption = noteValue(note, ["FWBSetUiCorruption", "FWBUiCorruption", "FourthWallUiCorruption"]);
+        if (uiCorruption !== null) FWB.setUiCorruption(Number(uiCorruption), 0);
+
+        const controlDistortion = noteValue(note, ["FWBControlDistortion", "FourthWallControlDistortion"]);
+        if (controlDistortion !== null) {
+            const opts = {};
+            String(controlDistortion).split(",").forEach(pair => {
+                const parts = pair.split("=");
+                const key = String(parts[0] || "").trim();
+                const raw = String(parts.slice(1).join("=") || "true").trim();
+                if (!key) return;
+                if (/^(true|false)$/i.test(raw)) opts[key] = /^true$/i.test(raw);
+                else if (Number.isFinite(Number(raw))) opts[key] = Number(raw);
+                else opts[key] = raw;
+            });
+            FWB.setControlDistortion(opts);
+        }
+
+        parseTriggerTags(note, sourceKey, "global");
 
         const pulse = noteValue(note, ["FWBPulse", "FourthWallPulse"]);
         if (pulse !== null) {
@@ -2573,6 +3445,7 @@
     function canCorruptMenuText() {
         const s = state();
         const kind = sceneKind(SceneManager._scene);
+        if (uiCorruptionLevel() > 0 && (kind === "menu" || kind === "file")) return true;
         if (kind === "file") return Settings.saveLoadCorruptionStage > 0 && s.stage >= Settings.saveLoadCorruptionStage;
         if (kind === "menu") return Settings.menuCorruptionStage > 0 && s.stage >= Settings.menuCorruptionStage;
         return false;
@@ -2580,6 +3453,9 @@
 
     function maybeCorruptText(text, probability, amount) {
         if (!canCorruptMenuText() || access().disableFlicker) return text;
+        const level = uiCorruptionLevel();
+        probability = clamp(Number(probability || 0) + level * 0.08, 0, 1);
+        amount = clamp(Number(amount || 0) + level * 0.04, 0, 1);
         if (Math.random() > probability) return text;
         return glitchText(text, amount, DEFAULT_SYMBOLS);
     }
@@ -2604,6 +3480,10 @@
 
         const _DataManager_saveGame = DataManager.saveGame;
         DataManager.saveGame = function(savefileId) {
+            if (Settings.fakeSystemEnabled && state().fakeSaveFailureNext) {
+                state().fakeSaveFailureNext = false;
+                FWB.fakeSaveFailure();
+            }
             const result = _DataManager_saveGame.apply(this, arguments);
             const mark = value => {
                 if (value !== false) {
@@ -2695,6 +3575,25 @@
     }
 
     if (typeof Game_Player !== "undefined") {
+        fwbOriginalExecuteMove = Game_Player.prototype.executeMove;
+        if (Game_Player.prototype.executeMove) {
+            const _Game_Player_executeMove = Game_Player.prototype.executeMove;
+            Game_Player.prototype.executeMove = function(direction) {
+                if (fwbApplyingDelayedMove || !isControlDistortionActive() || (root.$gameMessage && $gameMessage.isBusy && $gameMessage.isBusy())) {
+                    _Game_Player_executeMove.call(this, direction);
+                    return;
+                }
+                const d = state().controlDistortion || {};
+                if (Number(d.randomBlockChance || 0) > 0 && Math.random() < Number(d.randomBlockChance || 0)) return;
+                const distorted = distortDirection(direction);
+                if (Number(d.delayFrames || 0) > 0) {
+                    state().controlDistortionQueue.push({ direction: distorted, frames: Number(d.delayFrames || 0) });
+                    return;
+                }
+                _Game_Player_executeMove.call(this, distorted);
+            };
+        }
+
         const _Game_Player_updateNonmoving = Game_Player.prototype.updateNonmoving;
         Game_Player.prototype.updateNonmoving = function(wasTriggered, sceneActive) {
             _Game_Player_updateNonmoving.apply(this, arguments);
@@ -2790,16 +3689,30 @@
     if (typeof Window_Command !== "undefined") {
         const _Window_Command_drawItem = Window_Command.prototype.drawItem;
         Window_Command.prototype.drawItem = function(index) {
-            if (canCorruptMenuText() && Math.random() < 0.18) {
+            const level = uiCorruptionLevel();
+            const chance = 0.18 + level * 0.08;
+            if (canCorruptMenuText() && Math.random() < chance) {
                 const rect = this.itemLineRect(index);
+                const dx = level > 0 ? randomInt(-level * 2, level * 2) : 0;
+                const dy = level > 1 ? randomInt(-level, level) : 0;
                 this.resetTextColor();
                 this.changePaintOpacity(this.isCommandEnabled(index));
                 const name = maybeCorruptText(this.commandName(index), 1, 0.25);
-                this.drawText(name, rect.x, rect.y, rect.width, this.itemTextAlign());
+                this.drawText(name, rect.x + dx, rect.y + dy, rect.width, this.itemTextAlign());
                 this.changePaintOpacity(true);
             } else {
                 _Window_Command_drawItem.apply(this, arguments);
             }
+        };
+    }
+
+    if (typeof Window_Options !== "undefined" && Window_Options.prototype.statusText) {
+        const _Window_Options_statusText = Window_Options.prototype.statusText;
+        Window_Options.prototype.statusText = function(index) {
+            const name = this.commandName ? this.commandName(index) : "";
+            const overrides = state().fakeOptionOverrides || {};
+            if (Object.prototype.hasOwnProperty.call(overrides, name)) return String(overrides[name]);
+            return _Window_Options_statusText.apply(this, arguments);
         };
     }
 
@@ -2861,6 +3774,26 @@
 
     PluginManager.registerCommand(PLUGIN_NAME, "RegisterSequence", args => {
         FWB.registerSequence(argString(args, "sequenceName", "Custom Break"), argString(args, "customJson", "[]"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "QueueBreakSequence", args => {
+        FWB.queueSequence(argString(args, "sequenceName", "Reality Fracture"), argString(args, "customJson", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "PauseSequence", () => FWB.pauseSequence());
+    PluginManager.registerCommand(PLUGIN_NAME, "ResumeSequence", () => FWB.resumeSequence());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "StopSequence", args => {
+        FWB.stopSequence(argBool(args, "clearQueue", false));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearSequenceMemory", args => {
+        FWB.clearSequenceMemory(argString(args, "prefix", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ValidateSequence", args => {
+        const result = FWB.validateSequence(argString(args, "customJson", "[]"));
+        console.log(`[${PLUGIN_NAME}] ValidateSequence`, result);
     });
 
     PluginManager.registerCommand(PLUGIN_NAME, "RunBreakSequence", args => {
@@ -2941,6 +3874,54 @@
         });
     });
 
+    PluginManager.registerCommand(PLUGIN_NAME, "RegisterTrigger", args => {
+        FWB.registerTrigger({
+            id: argString(args, "triggerId", ""),
+            condition: argString(args, "condition", "presence GTE 75"),
+            action: argString(args, "action", "sequence"),
+            value: argString(args, "value", "System Failure"),
+            cooldown: argNumber(args, "cooldown", 0),
+            once: argBool(args, "once", false),
+            scope: argString(args, "scope", "global")
+        });
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearTriggers", args => {
+        FWB.clearTriggers(argString(args, "scope", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetControlDistortion", args => {
+        FWB.setControlDistortion({
+            duration: argNumber(args, "duration", 180),
+            invertX: argBool(args, "invertX", false),
+            invertY: argBool(args, "invertY", false),
+            driftChance: argNumber(args, "driftChance", 0),
+            randomBlockChance: argNumber(args, "randomBlockChance", 0),
+            delayFrames: argNumber(args, "delayFrames", 0),
+            forceDirection: argNumber(args, "forceDirection", 0)
+        });
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearControlDistortion", () => FWB.clearControlDistortion());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetUiCorruption", args => {
+        FWB.setUiCorruption(argNumber(args, "level", 1), argNumber(args, "duration", 0));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearUiCorruption", () => FWB.clearUiCorruption());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeSystemMessage", args => {
+        FWB.fakeSystemMessage(argString(args, "text", "Runtime integrity warning."), argString(args, "speaker", "SYSTEM"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeSaveFailure", args => {
+        FWB.fakeSaveFailure(argString(args, "text", "Save failed. File integrity compromised."));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeOptionChange", args => {
+        FWB.fakeOptionChange(argString(args, "optionName", "Volume"), argString(args, "fakeValue", "???"));
+    });
+
     PluginManager.registerCommand(PLUGIN_NAME, "DebugAction", args => {
         const action = argString(args, "action", "printState");
         if (action === "printState") console.log(`[${PLUGIN_NAME}] state`, JSON.parse(JSON.stringify(state())));
@@ -2963,6 +3944,10 @@
     // Public read-only helpers
     // -------------------------------------------------------------------------
 
+    FWB.triggerCount = function() { return (state().triggerRules || []).length; };
+    FWB.activeTriggers = function() { return (state().triggerRules || []).slice(); };
+    FWB.uiCorruptionLevel = function() { return uiCorruptionLevel(); };
+
     FWB.version = VERSION;
     FWB.presenceTierName = presenceTierName;
     FWB.presenceTierLevel = presenceTierLevel;
@@ -2970,6 +3955,7 @@
     FWB.settings = Settings;
     FWB.profiles = Profiles;
     FWB.sequences = SEQUENCES;
+    FWB.sequenceActions = SEQUENCE_ACTIONS;
     FWB.state = state;
     FWB.sync = syncVariablesAndSwitches;
     FWB.processNote = processGenericNote;
