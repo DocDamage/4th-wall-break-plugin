@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.6.0 Feature-packed staged 4th-wall break engine with Phase 3 conditional sequences, validation, queue controls, presence tiers, event bus, condition engine, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
+ * @plugindesc v4.9.0 Feature-packed staged 4th-wall break engine with Phases 7-9 memory/narrative expansion, battle break effects, audio corruption, trigger engine, control distortion, UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -43,6 +43,11 @@
  *   FourthWallBreaks.pauseSequence()
  *   FourthWallBreaks.resumeSequence()
  *   FourthWallBreaks.stopSequence()
+ *   FourthWallBreaks.memory.set("ignored_warning", true)
+ *   FourthWallBreaks.setMemory("seen_face", true)
+ *   FourthWallBreaks.fakeDamage(0, 9999)
+ *   FourthWallBreaks.corruptBattleLog(0.25, 3)
+ *   FourthWallBreaks.setAudioCorruption({ pitchDrift: 0.08, volumeFlutter: 0.15, duration: 300 })
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
  *
  * Built-in sequence names:
@@ -64,11 +69,20 @@
  *   <FWBGlitch: 0.25>
  *   <FWBPresence: 50>
  *   <FWBAddPresence: 10>
+ *   <FWBNarrativeState: hostile>
+ *   <FWBMemory: ignored_warning=true>
+ *   <FWBMemoryAdd: warnings_seen,1>
+ *   <FWBFlag: player_watched>
+ *   <FWBAudioCorruption: pitchDrift=0.08,volumeFlutter=0.15,duration=300>
  *   <FWBCommonEvent: 12>
  *   <FWBForbiddenRoom>
  *   <FWBMapEnterStage: 2>
  *   <FWBMapEnterSequence: Reality Fracture>
  *   <FWBOnAppearStage: 2>        enemy note
+ *   <FWBAwareEnemy>               enemy note; marks enemy as player-aware
+ *   <FWBAwarenessStage: 3>        enemy awareness crack stage
+ *   <FWBAwarenessMessage: You are not supposed to be here.>
+ *   <FWBAwarenessPresence: 10>
  *   <FWBStage90: 1>              enemy HP <= 90%
  *   <FWBStage75: 2>              enemy HP <= 75%
  *   <FWBStage50: 3>              enemy HP <= 50%
@@ -87,11 +101,13 @@
  *
  * Message tokens supported in Play 4th Wall Break and sequence message steps:
  *   {player} {saves} {loads} {deaths} {menus} {stage} {breach} {presence} {presenceTier} {narrative}
+ *   {memory:key} {flag:key}
  *
  * Custom sequence step actions:
  *   stage, escalate, reduce, clear, pulse, flash, glitch, speaker, message,
  *   breach, presence, commonEvent, lockInput, unlockInput, narrative, memory,
- *   flag, wait, emit, sequence, stopSequence
+ *   memoryAdd, clearMemory, flag, clearFlag, fakeDamage, fakeHeal, battleLog,
+ *   audioCorruption, clearAudioCorruption, wait, emit, sequence, stopSequence
  *
  * Conditional sequence fields:
  *   if, unless, chance, chancePercent, once, cooldown, cooldownScope, id
@@ -437,6 +453,40 @@
  * @text Fake System Messages Enabled
  * @type boolean
  * @default true
+ *
+ * @param NarrativeStateVariableId
+ * @text Narrative State Variable
+ * @type variable
+ * @default 0
+ * @desc Stores the current narrative state string.
+ *
+ * @param BattleBreakEnabled
+ * @text Battle Break Effects Enabled
+ * @type boolean
+ * @default true
+ *
+ * @param AudioCorruptionEnabled
+ * @text Audio Corruption Enabled
+ * @type boolean
+ * @default true
+ *
+ * @param AudioCorruptionMaxPitchDrift
+ * @text Max Audio Pitch Drift
+ * @type number
+ * @decimals 2
+ * @default 0.12
+ *
+ * @param AudioCorruptionMaxVolumeFlutter
+ * @text Max Audio Volume Flutter
+ * @type number
+ * @decimals 2
+ * @default 0.30
+ *
+ * @param AudioCorruptionMaxDropoutChance
+ * @text Max Audio Dropout Chance
+ * @type number
+ * @decimals 2
+ * @default 0.25
  *
  * @param DebugMode
  * @type boolean
@@ -879,6 +929,104 @@
  * @type string
  * @default ???
  *
+ * @command SetMemory
+ * @text Set Memory Value
+ * @arg key
+ * @type string
+ * @default key
+ * @arg value
+ * @type string
+ * @default true
+ *
+ * @command AddMemory
+ * @text Add Memory Value
+ * @arg key
+ * @type string
+ * @default counter
+ * @arg amount
+ * @type number
+ * @default 1
+ *
+ * @command ClearMemory
+ * @text Clear Memory Value
+ * @arg key
+ * @type string
+ * @default
+ *
+ * @command SetFlag
+ * @text Set Flag
+ * @arg key
+ * @type string
+ * @default flag
+ * @arg value
+ * @type boolean
+ * @default true
+ *
+ * @command ClearFlag
+ * @text Clear Flag
+ * @arg key
+ * @type string
+ * @default flag
+ *
+ * @command FakeBattleDamage
+ * @text Fake Battle Damage
+ * @arg targetIndex
+ * @type number
+ * @default 0
+ * @arg amount
+ * @type number
+ * @default 9999
+ * @arg text
+ * @type string
+ * @default
+ *
+ * @command FakeBattleHeal
+ * @text Fake Battle Heal
+ * @arg targetIndex
+ * @type number
+ * @default 0
+ * @arg amount
+ * @type number
+ * @default 9999
+ * @arg text
+ * @type string
+ * @default
+ *
+ * @command CorruptBattleLog
+ * @text Corrupt Battle Log
+ * @arg amount
+ * @type number
+ * @decimals 2
+ * @default 0.25
+ * @arg lines
+ * @type number
+ * @default 3
+ *
+ * @command SetAudioCorruption
+ * @text Set Audio Corruption
+ * @arg pitchDrift
+ * @type number
+ * @decimals 2
+ * @default 0.06
+ * @arg volumeFlutter
+ * @type number
+ * @decimals 2
+ * @default 0.12
+ * @arg dropoutChance
+ * @type number
+ * @decimals 2
+ * @default 0
+ * @arg wrongSeChance
+ * @type number
+ * @decimals 2
+ * @default 0
+ * @arg duration
+ * @type number
+ * @default 300
+ *
+ * @command ClearAudioCorruption
+ * @text Clear Audio Corruption
+ *
  * @command DebugAction
  * @text Debug Action
  * @arg action
@@ -902,7 +1050,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.6.0";
+    const VERSION = "4.9.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -1263,6 +1411,12 @@
         disableControlDistortion: pBool("DisableControlDistortion", false),
         maxUiCorruptionLevel: clamp(pNumber("MaxUiCorruptionLevel", 4), 0, 4),
         fakeSystemEnabled: pBool("FakeSystemEnabled", true),
+        narrativeStateVariableId: pNumber("NarrativeStateVariableId", 0),
+        battleBreakEnabled: pBool("BattleBreakEnabled", true),
+        audioCorruptionEnabled: pBool("AudioCorruptionEnabled", true),
+        audioCorruptionMaxPitchDrift: clamp(pNumber("AudioCorruptionMaxPitchDrift", 0.12), 0, 1),
+        audioCorruptionMaxVolumeFlutter: clamp(pNumber("AudioCorruptionMaxVolumeFlutter", 0.30), 0, 1),
+        audioCorruptionMaxDropoutChance: clamp(pNumber("AudioCorruptionMaxDropoutChance", 0.25), 0, 1),
         debugMode: pBool("DebugMode", false),
         debugOverlay: pBool("DebugOverlay", false)
     };
@@ -1532,8 +1686,12 @@
             presenceDecayAmount: Settings.presenceDecayAmount,
             presenceDecayFloor: Settings.presenceDecayFloor,
             narrativeState: "neutral",
+            narrativeHistory: [],
             memory: {},
+            sessionMemory: {},
             flags: {},
+            battleBreaks: { awareEnemies: {}, fakeLogLines: [], corruptLogAmount: 0, corruptLogLines: 0 },
+            audioCorruption: { enabled: false, remaining: 0, pitchDrift: 0, volumeFlutter: 0, dropoutChance: 0, wrongSeChance: 0, sePool: [] },
             triggerRules: [],
             triggerOnce: {},
             triggerCooldowns: {},
@@ -1624,7 +1782,13 @@
         if (!Array.isArray(s.fakeSystemMessages)) s.fakeSystemMessages = [];
         if (!s.triggerCooldowns || typeof s.triggerCooldowns !== "object") s.triggerCooldowns = {};
         if (!s.memory || typeof s.memory !== "object") s.memory = {};
+        if (!s.sessionMemory || typeof s.sessionMemory !== "object") s.sessionMemory = {};
         if (!s.flags || typeof s.flags !== "object") s.flags = {};
+        if (!Array.isArray(s.narrativeHistory)) s.narrativeHistory = [];
+        if (!s.battleBreaks || typeof s.battleBreaks !== "object") s.battleBreaks = { awareEnemies: {}, fakeLogLines: [], corruptLogAmount: 0, corruptLogLines: 0 };
+        if (!s.battleBreaks.awareEnemies || typeof s.battleBreaks.awareEnemies !== "object") s.battleBreaks.awareEnemies = {};
+        if (!Array.isArray(s.battleBreaks.fakeLogLines)) s.battleBreaks.fakeLogLines = [];
+        if (!s.audioCorruption || typeof s.audioCorruption !== "object") s.audioCorruption = defaultState().audioCorruption;
         if (!Array.isArray(s.sequenceQueue)) s.sequenceQueue = [];
         if (typeof s.sequencePaused !== "boolean") s.sequencePaused = false;
         if (!s.sequenceMemory || typeof s.sequenceMemory !== "object") s.sequenceMemory = { once: {}, cooldowns: {} };
@@ -1686,6 +1850,7 @@
             if (Settings.totalBreaksVariableId > 0) $gameVariables.setValue(Settings.totalBreaksVariableId, s.totalBreaks);
             if (Settings.presenceVariableId > 0) $gameVariables.setValue(Settings.presenceVariableId, Math.round(s.presence || 0));
             if (Settings.presenceTierVariableId > 0) $gameVariables.setValue(Settings.presenceTierVariableId, presenceTierLevel(s.presence));
+            if (Settings.narrativeStateVariableId > 0) $gameVariables.setValue(Settings.narrativeStateVariableId, String(s.narrativeState || "neutral"));
         }
         if (root.$gameSwitches) {
             if (Settings.activeSwitchId > 0) $gameSwitches.setValue(Settings.activeSwitchId, s.stage > 0);
@@ -2048,6 +2213,11 @@
         const s = state();
         const previousState = String(s.narrativeState || "neutral");
         s.narrativeState = String(value || "neutral");
+        s.narrativeHistory = s.narrativeHistory || [];
+        if (previousState !== s.narrativeState) {
+            s.narrativeHistory.push({ from: previousState, to: s.narrativeState, frame: root.Graphics && Graphics.frameCount || 0 });
+            if (s.narrativeHistory.length > 50) s.narrativeHistory.shift();
+        }
         markSyncDirty();
         if (previousState !== s.narrativeState) FWB.emit("narrativeStateChanged", { previousState: previousState, narrativeState: s.narrativeState });
         return s.narrativeState;
@@ -2057,27 +2227,70 @@
         return String(state().narrativeState || "neutral");
     };
 
+    function coerceMemoryValue(value) {
+        if (typeof value !== "string") return value;
+        const text = value.trim();
+        if (/^(true|false)$/i.test(text)) return /^true$/i.test(text);
+        if (/^null$/i.test(text)) return null;
+        if (text !== "" && Number.isFinite(Number(text))) return Number(text);
+        return value;
+    }
+
+    function memoryStore(scope) {
+        const s = state();
+        return String(scope || "save").toLowerCase() === "session" ? (s.sessionMemory || (s.sessionMemory = {})) : (s.memory || (s.memory = {}));
+    }
+
     FWB.memory = {
-        set: function(key, value) {
-            const s = state();
-            s.memory[String(key || "")] = value;
+        set: function(key, value, scope) {
+            const store = memoryStore(scope);
+            store[String(key || "")] = coerceMemoryValue(value);
             markSyncDirty();
-            return value;
+            FWB.emit("memoryChanged", { key: String(key || ""), value: store[String(key || "")], scope: scope || "save" });
+            return store[String(key || "")];
         },
-        get: function(key, def) {
-            const s = state();
+        get: function(key, def, scope) {
+            const store = memoryStore(scope);
             key = String(key || "");
-            return Object.prototype.hasOwnProperty.call(s.memory || {}, key) ? s.memory[key] : def;
+            return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : def;
         },
-        add: function(key, amount) {
-            const current = Number(this.get(key, 0) || 0);
-            return this.set(key, current + Number(amount || 1));
+        has: function(key, scope) {
+            const store = memoryStore(scope);
+            return Object.prototype.hasOwnProperty.call(store, String(key || ""));
         },
-        clear: function(key) {
-            const s = state();
-            delete s.memory[String(key || "")];
+        add: function(key, amount, scope) {
+            const current = Number(this.get(key, 0, scope) || 0);
+            return this.set(key, current + Number(amount || 1), scope);
+        },
+        toggle: function(key, scope) {
+            return this.set(key, !this.get(key, false, scope), scope);
+        },
+        clear: function(key, scope) {
+            const store = memoryStore(scope);
+            if (key) delete store[String(key || "")];
+            else Object.keys(store).forEach(k => delete store[k]);
             markSyncDirty();
+        },
+        all: function(scope) {
+            return Object.assign({}, memoryStore(scope));
         }
+    };
+
+    FWB.setMemory = function(key, value, scope) { return FWB.memory.set(key, value, scope); };
+    FWB.addMemory = function(key, amount, scope) { return FWB.memory.add(key, amount, scope); };
+    FWB.clearMemory = function(key, scope) { return FWB.memory.clear(key, scope); };
+    FWB.setFlag = function(key, value) {
+        const s = state();
+        s.flags[String(key || "")] = value === undefined ? true : !!value;
+        markSyncDirty();
+        FWB.emit("flagChanged", { key: String(key || ""), value: s.flags[String(key || "")] });
+        return s.flags[String(key || "")];
+    };
+    FWB.clearFlag = function(key) {
+        const s = state();
+        if (key) delete s.flags[String(key)];
+        else s.flags = {};
+        markSyncDirty();
     };
 
     // -------------------------------------------------------------------------
@@ -2412,6 +2625,203 @@
         markSyncDirty();
     };
 
+
+    // -------------------------------------------------------------------------
+    // Phase 7 Memory and Narrative Expansion
+    // -------------------------------------------------------------------------
+
+    function parseMemoryPair(value) {
+        const text = String(value || "");
+        const eq = text.indexOf("=");
+        if (eq >= 0) return { key: text.slice(0, eq).trim(), value: coerceMemoryValue(text.slice(eq + 1).trim()) };
+        const comma = text.indexOf(",");
+        if (comma >= 0) return { key: text.slice(0, comma).trim(), value: coerceMemoryValue(text.slice(comma + 1).trim()) };
+        return { key: text.trim(), value: true };
+    }
+
+    FWB.getNarrativeHistory = function() {
+        return JSON.parse(JSON.stringify(state().narrativeHistory || []));
+    };
+
+    FWB.clearNarrativeHistory = function() {
+        state().narrativeHistory = [];
+        markSyncDirty();
+    };
+
+    // -------------------------------------------------------------------------
+    // Phase 8 Battle Break Effects and Enemy Awareness
+    // -------------------------------------------------------------------------
+
+    function battleLogWindow() {
+        const scene = root.SceneManager && SceneManager._scene;
+        return scene && scene._logWindow ? scene._logWindow : (root.BattleManager && BattleManager._logWindow ? BattleManager._logWindow : null);
+    }
+
+    function battleMembers() {
+        const members = [];
+        if (root.$gameTroop && $gameTroop.members) members.push.apply(members, $gameTroop.members());
+        if (root.$gameParty && $gameParty.battleMembers) members.push.apply(members, $gameParty.battleMembers());
+        return members;
+    }
+
+    function battleTargetByIndex(index) {
+        const members = battleMembers();
+        return members[clamp(Number(index || 0), 0, Math.max(0, members.length - 1))] || null;
+    }
+
+    function battlerDisplayName(target) {
+        if (!target) return "Target";
+        if (target.name) return target.name();
+        return "Target";
+    }
+
+    function pushBattleLog(text) {
+        const line = tokenReplace(text || "");
+        const log = battleLogWindow();
+        if (log && log.push) log.push("addText", line);
+        else if (root.$gameMessage) $gameMessage.add(line);
+        FWB.emit("battleLogLine", { text: line });
+        return line;
+    }
+
+    FWB.fakeDamage = function(targetOrIndex, amount, text) {
+        if (!Settings.battleBreakEnabled) return false;
+        const target = typeof targetOrIndex === "number" ? battleTargetByIndex(targetOrIndex) : targetOrIndex;
+        const line = text || `${battlerDisplayName(target)} took ${Number(amount || 0)} damage!`;
+        pushBattleLog(line);
+        FWB.emit("fakeDamage", { target: target, amount: Number(amount || 0), text: line });
+        return true;
+    };
+
+    FWB.fakeHeal = function(targetOrIndex, amount, text) {
+        if (!Settings.battleBreakEnabled) return false;
+        const target = typeof targetOrIndex === "number" ? battleTargetByIndex(targetOrIndex) : targetOrIndex;
+        const line = text || `${battlerDisplayName(target)} recovered ${Number(amount || 0)} HP!`;
+        pushBattleLog(line);
+        FWB.emit("fakeHeal", { target: target, amount: Number(amount || 0), text: line });
+        return true;
+    };
+
+    FWB.corruptBattleLog = function(amount, lines) {
+        const s = state();
+        s.battleBreaks = s.battleBreaks || {};
+        s.battleBreaks.corruptLogAmount = clamp(Number(amount || 0.25), 0, 1);
+        s.battleBreaks.corruptLogLines = Math.max(1, Number(lines || 3));
+        markSyncDirty();
+        FWB.emit("battleLogCorruptionSet", { amount: s.battleBreaks.corruptLogAmount, lines: s.battleBreaks.corruptLogLines });
+    };
+
+    function maybeCorruptBattleLogText(text) {
+        const s = state();
+        const b = s.battleBreaks || {};
+        if (!Settings.battleBreakEnabled || !b.corruptLogLines || access().disableFlicker) return text;
+        b.corruptLogLines -= 1;
+        const amount = clamp(Number(b.corruptLogAmount || 0.25), 0, 1);
+        return glitchText(text, amount, DEFAULT_SYMBOLS);
+    }
+
+    function runEnemyAwareness(enemy, data, note) {
+        if (!Settings.battleBreakEnabled || !enemy || !data) return;
+        if (!noteFlag(note, ["FWBAwareEnemy", "FourthWallAwareEnemy"]) && noteValue(note, ["FWBAwarenessStage", "FourthWallAwarenessStage"]) === null && noteValue(note, ["FWBAwarenessMessage", "FourthWallAwarenessMessage"]) === null) return;
+        const s = state();
+        s.battleBreaks = s.battleBreaks || { awareEnemies: {} };
+        s.battleBreaks.awareEnemies = s.battleBreaks.awareEnemies || {};
+        const key = `aware_${root.$gameTroop ? $gameTroop.troopId() : 0}_${enemy.index ? enemy.index() : 0}_${data.id || 0}`;
+        if (s.battleBreaks.awareEnemies[key]) return;
+        s.battleBreaks.awareEnemies[key] = true;
+        const stage = noteValue(note, ["FWBAwarenessStage", "FourthWallAwarenessStage"]);
+        if (stage !== null) FWB.setStage(Number(stage), { fadeFrames: 30, source: "enemyAwareness", glitchOnStage: true });
+        const presence = noteValue(note, ["FWBAwarenessPresence", "FourthWallAwarenessPresence"]);
+        if (presence !== null) FWB.addPresence(Number(presence), { source: "enemyAwareness" });
+        const message = noteValue(note, ["FWBAwarenessMessage", "FourthWallAwarenessMessage"]);
+        if (message !== null) pushBattleLog(String(message));
+        FWB.emit("enemyAwareness", { enemy: enemy, data: data, key: key });
+        markSyncDirty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 9 Audio Corruption Layer
+    // -------------------------------------------------------------------------
+
+    const FWB_AUDIO_FALLBACK_SE = ["Cursor", "Cancel", "Decision", "Buzzer", "Damage1", "Damage2", "Equip1", "Load", "Save"];
+
+    FWB.setAudioCorruption = function(options) {
+        const s = state();
+        if (!Settings.audioCorruptionEnabled || access().disableAudioDistortion) return false;
+        options = options || {};
+        s.audioCorruption = {
+            enabled: true,
+            remaining: Math.max(1, Number(options.duration || options.frames || 300)),
+            pitchDrift: clamp(Number(options.pitchDrift || 0), 0, Settings.audioCorruptionMaxPitchDrift),
+            volumeFlutter: clamp(Number(options.volumeFlutter || 0), 0, Settings.audioCorruptionMaxVolumeFlutter),
+            dropoutChance: clamp(Number(options.dropoutChance || 0), 0, Settings.audioCorruptionMaxDropoutChance),
+            wrongSeChance: clamp(Number(options.wrongSeChance || 0), 0, 1),
+            sePool: Array.isArray(options.sePool) ? options.sePool.slice() : FWB_AUDIO_FALLBACK_SE.slice()
+        };
+        markSyncDirty();
+        FWB.emit("audioCorruptionStarted", { audioCorruption: Object.assign({}, s.audioCorruption) });
+        return true;
+    };
+
+    FWB.clearAudioCorruption = function() {
+        const s = state();
+        s.audioCorruption = defaultState().audioCorruption;
+        markSyncDirty();
+        FWB.emit("audioCorruptionCleared", {});
+    };
+
+    FWB.getAudioCorruption = function() {
+        return Object.assign({}, state().audioCorruption || {});
+    };
+
+    function isAudioCorruptionActive() {
+        const a = state().audioCorruption || {};
+        return !!a.enabled && Number(a.remaining || 0) > 0 && Settings.audioCorruptionEnabled && !access().disableAudioDistortion;
+    }
+
+    function corruptAudioPayload(payload, type) {
+        if (!payload || !isAudioCorruptionActive()) return payload;
+        const a = state().audioCorruption || {};
+        if (Number(a.dropoutChance || 0) > 0 && Math.random() < Number(a.dropoutChance || 0)) return null;
+        const next = Object.assign({}, payload);
+        if (type === "se" && Number(a.wrongSeChance || 0) > 0 && Math.random() < Number(a.wrongSeChance || 0)) {
+            const pool = Array.isArray(a.sePool) && a.sePool.length ? a.sePool : FWB_AUDIO_FALLBACK_SE;
+            next.name = pool[randomInt(0, pool.length - 1)] || next.name;
+        }
+        if (Number(a.pitchDrift || 0) > 0) {
+            const drift = randomRange(-Number(a.pitchDrift), Number(a.pitchDrift));
+            next.pitch = clamp(Number(next.pitch || 100) * (1 + drift), 50, 150);
+        }
+        if (Number(a.volumeFlutter || 0) > 0) {
+            const flutter = randomRange(-Number(a.volumeFlutter), Number(a.volumeFlutter));
+            next.volume = clamp(Number(next.volume || 90) * (1 + flutter), 0, 100);
+        }
+        return next;
+    }
+
+    function updateAudioCorruption(scene) {
+        const s = state();
+        const a = s.audioCorruption || {};
+        if (!a.enabled) return;
+        if (Number(a.remaining || 0) > 0) a.remaining -= 1;
+        if (Number(a.remaining || 0) <= 0) FWB.clearAudioCorruption();
+    }
+
+    function parseKeyValueOptions(text) {
+        const opts = {};
+        String(text || "").split(",").forEach(pair => {
+            const parts = pair.split("=");
+            const key = String(parts[0] || "").trim();
+            const raw = String(parts.slice(1).join("=") || "true").trim();
+            if (!key) return;
+            if (/^(true|false)$/i.test(raw)) opts[key] = /^true$/i.test(raw);
+            else if (Number.isFinite(Number(raw))) opts[key] = Number(raw);
+            else if (key === "sePool") opts[key] = raw.split(/[|;]/).map(x => x.trim()).filter(Boolean);
+            else opts[key] = raw;
+        });
+        return opts;
+    }
+
     // -------------------------------------------------------------------------
     // Glitch text and messages
     // -------------------------------------------------------------------------
@@ -2488,7 +2898,9 @@
             .replace(/\{breach\}/gi, String(Math.round(s.breachMeter || 0)))
             .replace(/\{presence\}/gi, String(Math.round(s.presence || 0)))
             .replace(/\{presenceTier\}/gi, String(s.presenceTier || presenceTierName(s.presence)))
-            .replace(/\{narrative\}/gi, String(s.narrativeState || "neutral"));
+            .replace(/\{narrative\}/gi, String(s.narrativeState || "neutral"))
+            .replace(/\{memory:([^}]+)\}/gi, function(_, key) { return String(FWB.memory.get(String(key).trim(), "")); })
+            .replace(/\{flag:([^}]+)\}/gi, function(_, key) { return String(!!(s.flags && s.flags[String(key).trim()])); });
     }
 
     FWB.playBreakMoment = function(options) {
@@ -2532,7 +2944,8 @@
     const SEQUENCE_ACTIONS = [
         "stage", "setstage", "escalate", "reduce", "clear", "pulse", "flash", "glitch", "speaker", "message",
         "breach", "commonevent", "lockinput", "unlockinput", "presence", "narrative", "setnarrativestate",
-        "memory", "flag", "wait", "emit", "sequence", "runsequence", "stopsequence"
+        "memory", "memoryadd", "clearmemory", "flag", "clearflag", "fakedamage", "fakeheal", "battlelog", "corruptbattlelog",
+        "audiocorruption", "clearaudiocorruption", "wait", "emit", "sequence", "runsequence", "stopsequence"
     ];
 
     const SESSION_SEQUENCE_ONCE = {};
@@ -2828,11 +3241,37 @@
                 FWB.setNarrativeState(String(step.value || step.state || "neutral"));
                 break;
             case "memory":
-                if (step.key) FWB.memory.set(step.key, step.value);
+                if (step.key) FWB.memory.set(step.key, step.value, step.scope);
+                break;
+            case "memoryadd":
+                if (step.key) FWB.memory.add(step.key, Number(step.amount || step.value || 1), step.scope);
+                break;
+            case "clearmemory":
+                FWB.memory.clear(step.key || "", step.scope);
                 break;
             case "flag":
-                if (step.key) state().flags[step.key] = step.value !== undefined ? step.value : true;
-                markSyncDirty();
+                if (step.key) FWB.setFlag(step.key, step.value !== undefined ? step.value : true);
+                break;
+            case "clearflag":
+                FWB.clearFlag(step.key || "");
+                break;
+            case "fakedamage":
+                FWB.fakeDamage(Number(step.targetIndex || step.target || 0), Number(step.amount || 9999), step.text);
+                break;
+            case "fakeheal":
+                FWB.fakeHeal(Number(step.targetIndex || step.target || 0), Number(step.amount || 9999), step.text);
+                break;
+            case "battlelog":
+                pushBattleLog(String(step.text || step.value || ""));
+                break;
+            case "corruptbattlelog":
+                FWB.corruptBattleLog(Number(step.amount || 0.25), Number(step.lines || 3));
+                break;
+            case "audiocorruption":
+                FWB.setAudioCorruption(step);
+                break;
+            case "clearaudiocorruption":
+                FWB.clearAudioCorruption();
                 break;
             case "wait":
                 runtime.waitFrames = Math.max(runtime.waitFrames || 0, Number(step.frames || step.duration || 30));
@@ -3277,6 +3716,7 @@
         updateControlDistortion(scene);
         updateInputLock();
         updateUiCorruption(scene);
+        updateAudioCorruption(scene);
         updateRandomSubtle(scene);
         updateIdleTracking(scene);
         syncVariablesAndSwitches();
@@ -3299,6 +3739,17 @@
         if (setPresence !== null) FWB.setPresence(Number(setPresence), { source: sourceKey });
         const addPresence = noteValue(note, ["FWBAddPresence", "FourthWallAddPresence"]);
         if (addPresence !== null) FWB.addPresence(Number(addPresence), { source: sourceKey });
+
+        const narrative = noteValue(note, ["FWBNarrativeState", "FourthWallNarrativeState"]);
+        if (narrative !== null) FWB.setNarrativeState(String(narrative));
+        const memory = noteValue(note, ["FWBMemory", "FourthWallMemory"]);
+        if (memory !== null) { const pair = parseMemoryPair(memory); if (pair.key) FWB.memory.set(pair.key, pair.value); }
+        const memoryAdd = noteValue(note, ["FWBMemoryAdd", "FourthWallMemoryAdd"]);
+        if (memoryAdd !== null) { const pair = parseMemoryPair(memoryAdd); if (pair.key) FWB.memory.add(pair.key, Number(pair.value || 1)); }
+        const flag = noteValue(note, ["FWBFlag", "FourthWallFlag"]);
+        if (flag !== null) FWB.setFlag(String(flag), true);
+        const audioCorruption = noteValue(note, ["FWBAudioCorruption", "FourthWallAudioCorruption"]);
+        if (audioCorruption !== null) FWB.setAudioCorruption(parseKeyValueOptions(audioCorruption));
 
         const uiCorruption = noteValue(note, ["FWBSetUiCorruption", "FWBUiCorruption", "FourthWallUiCorruption"]);
         if (uiCorruption !== null) FWB.setUiCorruption(Number(uiCorruption), 0);
@@ -3397,6 +3848,7 @@
             const key = `enemyAppear_${root.$gameTroop ? $gameTroop.troopId() : 0}_${enemy.index ? enemy.index() : 0}_${stage}`;
             if (rememberTrigger(key)) FWB.setStage(Number(stage), { fadeFrames: 35 });
         }
+        runEnemyAwareness(enemy, data, note);
         processGenericNote(note, `enemy_${data.id}`);
     }
 
@@ -3458,6 +3910,40 @@
         amount = clamp(Number(amount || 0) + level * 0.04, 0, 1);
         if (Math.random() > probability) return text;
         return glitchText(text, amount, DEFAULT_SYMBOLS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Audio corruption aliases
+    // -------------------------------------------------------------------------
+
+    if (typeof AudioManager !== "undefined") {
+        const _FWB_AudioManager_playSe = AudioManager.playSe;
+        AudioManager.playSe = function(se) {
+            const next = corruptAudioPayload(se, "se");
+            if (!next) return;
+            _FWB_AudioManager_playSe.call(this, next);
+        };
+
+        const _FWB_AudioManager_playBgm = AudioManager.playBgm;
+        AudioManager.playBgm = function(bgm, pos) {
+            const next = corruptAudioPayload(bgm, "bgm");
+            if (!next) return;
+            _FWB_AudioManager_playBgm.call(this, next, pos);
+        };
+
+        const _FWB_AudioManager_playBgs = AudioManager.playBgs;
+        AudioManager.playBgs = function(bgs, pos) {
+            const next = corruptAudioPayload(bgs, "bgs");
+            if (!next) return;
+            _FWB_AudioManager_playBgs.call(this, next, pos);
+        };
+
+        const _FWB_AudioManager_playMe = AudioManager.playMe;
+        AudioManager.playMe = function(me) {
+            const next = corruptAudioPayload(me, "me");
+            if (!next) return;
+            _FWB_AudioManager_playMe.call(this, next);
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -3645,6 +4131,18 @@
     }
 
     if (typeof BattleManager !== "undefined") {
+        const _BattleManager_startBattle = BattleManager.startBattle;
+        if (_BattleManager_startBattle) {
+            BattleManager.startBattle = function() {
+                const s = state();
+                s.battleBreaks = s.battleBreaks || {};
+                s.battleBreaks.awareEnemies = {};
+                s.battleBreaks.fakeLogLines = [];
+                FWB.emit("battleStarted", {});
+                _BattleManager_startBattle.apply(this, arguments);
+            };
+        }
+
         const _BattleManager_update = BattleManager.update;
         BattleManager.update = function(timeActive) {
             _BattleManager_update.apply(this, arguments);
@@ -3654,6 +4152,7 @@
         const _BattleManager_endBattle = BattleManager.endBattle;
         BattleManager.endBattle = function(result) {
             _BattleManager_endBattle.apply(this, arguments);
+            FWB.emit("battleEnded", { result: result });
             clearTriggerPrefix("enemyAppear_");
             clearTriggerPrefix("enemyHp_");
             if (Settings.clearAfterBattle) FWB.clear({ fadeFrames: 45 });
@@ -3684,6 +4183,13 @@
                 _Game_Message_setSpeakerName.call(this, speakerName);
             };
         }
+    }
+
+    if (typeof Window_BattleLog !== "undefined") {
+        const _FWB_Window_BattleLog_addText = Window_BattleLog.prototype.addText;
+        Window_BattleLog.prototype.addText = function(text) {
+            _FWB_Window_BattleLog_addText.call(this, maybeCorruptBattleLogText(text));
+        };
     }
 
     if (typeof Window_Command !== "undefined") {
@@ -3921,6 +4427,50 @@
     PluginManager.registerCommand(PLUGIN_NAME, "FakeOptionChange", args => {
         FWB.fakeOptionChange(argString(args, "optionName", "Volume"), argString(args, "fakeValue", "???"));
     });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetMemory", args => {
+        FWB.memory.set(argString(args, "key", "key"), argString(args, "value", "true"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "AddMemory", args => {
+        FWB.memory.add(argString(args, "key", "counter"), argNumber(args, "amount", 1));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearMemory", args => {
+        FWB.memory.clear(argString(args, "key", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetFlag", args => {
+        FWB.setFlag(argString(args, "key", "flag"), argBool(args, "value", true));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearFlag", args => {
+        FWB.clearFlag(argString(args, "key", "flag"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeBattleDamage", args => {
+        FWB.fakeDamage(argNumber(args, "targetIndex", 0), argNumber(args, "amount", 9999), argString(args, "text", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeBattleHeal", args => {
+        FWB.fakeHeal(argNumber(args, "targetIndex", 0), argNumber(args, "amount", 9999), argString(args, "text", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "CorruptBattleLog", args => {
+        FWB.corruptBattleLog(argNumber(args, "amount", 0.25), argNumber(args, "lines", 3));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetAudioCorruption", args => {
+        FWB.setAudioCorruption({
+            pitchDrift: argNumber(args, "pitchDrift", 0.06),
+            volumeFlutter: argNumber(args, "volumeFlutter", 0.12),
+            dropoutChance: argNumber(args, "dropoutChance", 0),
+            wrongSeChance: argNumber(args, "wrongSeChance", 0),
+            duration: argNumber(args, "duration", 300)
+        });
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearAudioCorruption", () => FWB.clearAudioCorruption());
 
     PluginManager.registerCommand(PLUGIN_NAME, "DebugAction", args => {
         const action = argString(args, "action", "printState");
