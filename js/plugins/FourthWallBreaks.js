@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.12.0 Feature-packed staged 4th-wall break engine with Phases 10-12 visual distortion, fake crash/meta events, real-time awareness, developer inspector tools, memory/narrative, battle/audio corruption, triggers, control/UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
+ * @plugindesc v4.13.0 Release-hardened staged 4th-wall break engine with safe mode, config import/export, debug reporters, presets, packaging support, Phases 10-12 visual distortion, fake crash/meta events, real-time awareness, developer inspector tools, memory/narrative, battle/audio corruption, triggers, control/UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -53,6 +53,10 @@
  *   FourthWallBreaks.realTime.isLateNight()
  *   FourthWallBreaks.debugSnapshot()
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
+ *   FourthWallBreaks.enableSafeMode()
+ *   FourthWallBreaks.exportConfig()
+ *   FourthWallBreaks.debugPrintTriggers()
+ *   FourthWallBreaks.validateConfig()
  *
  * Built-in sequence names:
  *   Subtle Warning
@@ -1101,6 +1105,34 @@
  * @command ValidateRuntime
  * @text Validate Runtime
  *
+
+ * @command EnableSafeMode
+ * @text Enable Safe Mode
+ *
+ * @command DisableSafeMode
+ * @text Disable Safe Mode
+ *
+ * @command ExportConfig
+ * @text Export Runtime Config
+ *
+ * @command ImportConfig
+ * @text Import Runtime Config
+ * @arg configJson
+ * @type note
+ * @default {}
+ *
+ * @command DebugPrintTriggers
+ * @text Debug Print Triggers
+ *
+ * @command DebugPrintSequences
+ * @text Debug Print Sequences
+ *
+ * @command DebugPrintMemory
+ * @text Debug Print Memory
+ *
+ * @command ValidateConfig
+ * @text Validate Config
+ *
  * @command DebugAction
  * @text Debug Action
  * @arg action
@@ -1124,7 +1156,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.12.0";
+    const VERSION = "4.13.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -4886,6 +4918,315 @@
     });
 
     PluginManager.registerCommand(PLUGIN_NAME, "ForceSync", () => syncVariablesAndSwitches());
+
+
+    // -------------------------------------------------------------------------
+    // v4.13.0 Release Hardening: safety, config, debug reporters, compatibility
+    // -------------------------------------------------------------------------
+
+    function safeCall(label, fn, fallback) {
+        try {
+            return typeof fn === "function" ? fn() : fallback;
+        } catch (e) {
+            if (Settings && Settings.debugMode) console.warn(`[${PLUGIN_NAME}] safeCall failed: ${label}`, e);
+            return fallback;
+        }
+    }
+
+    FWB.safeCall = safeCall;
+
+    function validationIssue(level, code, message, details) {
+        return { level: level || "warn", code: code || "UNKNOWN", message: String(message || ""), details: details || null };
+    }
+
+    FWB.validateConfig = function() {
+        const issues = [];
+        if (!PLUGIN_NAME) issues.push(validationIssue("error", "PLUGIN_NAME_MISSING", "Plugin name is missing."));
+        if (!Profiles || typeof Profiles !== "object") issues.push(validationIssue("error", "PROFILES_MISSING", "Stage profiles are missing."));
+        for (let i = 1; i <= 4; i++) {
+            const p = Profiles[i];
+            if (!p) {
+                issues.push(validationIssue("error", "PROFILE_MISSING", `Stage ${i} profile is missing.`));
+                continue;
+            }
+            if (!p.image) issues.push(validationIssue("warn", "PROFILE_IMAGE_MISSING", `Stage ${i} has no image configured.`));
+            if (!Number.isFinite(Number(p.opacity))) issues.push(validationIssue("warn", "PROFILE_OPACITY_INVALID", `Stage ${i} opacity is not numeric.`, p.opacity));
+            if (Number(p.opacity) > 255 || Number(p.opacity) < 0) issues.push(validationIssue("warn", "PROFILE_OPACITY_RANGE", `Stage ${i} opacity should be 0-255.`, p.opacity));
+        }
+        if (Settings.maxOverlayOpacity < 0 || Settings.maxOverlayOpacity > 255) {
+            issues.push(validationIssue("warn", "MAX_OPACITY_RANGE", "MaxOverlayOpacity should be between 0 and 255.", Settings.maxOverlayOpacity));
+        }
+        if (Settings.randomMinCooldownFrames > Settings.randomMaxCooldownFrames) {
+            issues.push(validationIssue("warn", "RANDOM_COOLDOWN_RANGE", "RandomMinCooldownFrames is greater than RandomMaxCooldownFrames."));
+        }
+        const s = state();
+        if (!s || typeof s !== "object") issues.push(validationIssue("error", "STATE_MISSING", "FourthWallBreaks state is missing."));
+        if (s && !s.accessibility) issues.push(validationIssue("warn", "ACCESSIBILITY_MISSING", "Accessibility state is missing and will be migrated."));
+        if (s && !s.trackers) issues.push(validationIssue("warn", "TRACKERS_MISSING", "Tracker state is missing and will be migrated."));
+        return {
+            ok: !issues.some(issue => issue.level === "error"),
+            version: VERSION,
+            issueCount: issues.length,
+            issues
+        };
+    };
+
+    FWB.recoverState = function() {
+        if (!root.$gameSystem) return false;
+        $gameSystem._fourthWallBreaks = migrateState($gameSystem._fourthWallBreaks || defaultState());
+        markSyncDirty();
+        return true;
+    };
+
+    FWB.resetRuntimeOnlyState = function() {
+        const s = state();
+        s.sequence = null;
+        s.sequenceQueue = [];
+        s.pulse = null;
+        s.inputLockFrames = 0;
+        s.runtimeShakeFrames = 0;
+        s.runtimeShakePower = 0;
+        s.controlDistortion = null;
+        s.uiCorruption = null;
+        s.audioCorruption = null;
+        s.visualDistortion = null;
+        s.fakeCrash = null;
+        markSyncDirty();
+        FWB.emit("runtimeReset", {});
+        return true;
+    };
+
+    FWB.enableSafeMode = function() {
+        const s = state();
+        s.safeMode = true;
+        FWB.setAccessibility({
+            reduceFlashing: true,
+            reduceScreenShake: true,
+            disableFlicker: true,
+            disableStage4: true,
+            maxOverlayOpacity: Math.min(Number(access().maxOverlayOpacity || 255), 160)
+        });
+        if (FWB.clearControlDistortion) FWB.clearControlDistortion();
+        if (FWB.clearAudioCorruption) FWB.clearAudioCorruption();
+        if (FWB.clearVisualDistortion) FWB.clearVisualDistortion();
+        if (FWB.clearUiCorruption) FWB.clearUiCorruption();
+        s.inputLockFrames = 0;
+        markSyncDirty();
+        FWB.emit("safeModeChanged", { enabled: true });
+        return true;
+    };
+
+    FWB.disableSafeMode = function() {
+        const s = state();
+        s.safeMode = false;
+        markSyncDirty();
+        FWB.emit("safeModeChanged", { enabled: false });
+        return true;
+    };
+
+    FWB.isSafeModeEnabled = function() {
+        return !!state().safeMode;
+    };
+
+    FWB.exportConfig = function() {
+        const s = state();
+        return JSON.stringify({
+            version: VERSION,
+            mode: s.mode,
+            accessibility: s.accessibility,
+            safeMode: !!s.safeMode,
+            breachMeter: s.breachMeter,
+            presence: s.presence,
+            narrativeState: s.narrativeState,
+            memory: s.memory || {},
+            flags: s.sessionFlags || {},
+            customSequences: s.customSequences || {},
+            triggers: s.triggers || []
+        }, null, 2);
+    };
+
+    FWB.importConfig = function(configJson) {
+        const data = typeof configJson === "string" ? tryParseJson(configJson, null) : configJson;
+        if (!data || typeof data !== "object") return false;
+        const s = state();
+        if (data.mode) FWB.setMode(data.mode);
+        if (data.accessibility) FWB.setAccessibility(data.accessibility);
+        if (data.safeMode) FWB.enableSafeMode(); else if (data.safeMode === false) FWB.disableSafeMode();
+        if (Number.isFinite(Number(data.breachMeter))) FWB.setBreach(Number(data.breachMeter), { count: false });
+        if (Number.isFinite(Number(data.presence)) && FWB.setPresence) FWB.setPresence(Number(data.presence), { count: false });
+        if (typeof data.narrativeState === "string" && FWB.setNarrativeState) FWB.setNarrativeState(data.narrativeState);
+        if (data.memory && typeof data.memory === "object") s.memory = Object.assign(s.memory || {}, data.memory);
+        if (data.flags && typeof data.flags === "object") s.sessionFlags = Object.assign(s.sessionFlags || {}, data.flags);
+        if (data.customSequences && typeof data.customSequences === "object") {
+            Object.keys(data.customSequences).forEach(name => {
+                if (FWB.registerSequence) FWB.registerSequence(name, data.customSequences[name]);
+            });
+        }
+        if (Array.isArray(data.triggers) && FWB.registerTrigger) {
+            data.triggers.forEach(rule => FWB.registerTrigger(rule));
+        }
+        markSyncDirty();
+        FWB.emit("configImported", { keys: Object.keys(data) });
+        return true;
+    };
+
+    const PRESET_LIBRARY = {
+        "accessibility_safe": {
+            accessibility: { reduceFlashing: true, reduceScreenShake: true, disableFlicker: true, disableStage4: true, maxOverlayOpacity: 140 },
+            safeMode: true
+        },
+        "horror_subtle": {
+            presence: 25,
+            narrativeState: "aware",
+            accessibility: { maxOverlayOpacity: 180 },
+            triggers: [
+                { id: "subtle_presence_idle", condition: "idle GTE 1800", action: "sequence", value: "Subtle Warning", cooldown: 1800, once: "session" }
+            ]
+        },
+        "psychological_hostile": {
+            presence: 75,
+            narrativeState: "hostile",
+            triggers: [
+                { id: "hostile_high_presence", condition: "presence GTE 75", action: "sequence", value: "System Failure", cooldown: 2400, once: "save" }
+            ]
+        },
+        "boss_breach": {
+            presence: 60,
+            narrativeState: "hostile",
+            triggers: [
+                { id: "boss_breach_presence", condition: "presence GTE 60 AND stage GTE 3", action: "sequence", value: "Boss Break", cooldown: 1200 }
+            ]
+        },
+        "meta_comedy": {
+            presence: 35,
+            narrativeState: "curious",
+            triggers: [
+                { id: "menu_peek", condition: "menus GTE 5", action: "message", value: "You really like menus, huh?", cooldown: 1800, once: "save" }
+            ]
+        }
+    };
+
+    FWB.presets = PRESET_LIBRARY;
+
+    FWB.loadPreset = function(name) {
+        const preset = PRESET_LIBRARY[String(name || "")];
+        if (!preset) return false;
+        return FWB.importConfig(JSON.parse(JSON.stringify(preset)));
+    };
+
+    FWB.debugSnapshot = FWB.debugSnapshot || function() {
+        const s = state();
+        return {
+            version: VERSION,
+            stage: s.stage,
+            breachMeter: s.breachMeter,
+            presence: s.presence,
+            presenceTier: FWB.getPresenceTier ? FWB.getPresenceTier() : "unknown",
+            narrativeState: s.narrativeState,
+            sequence: s.sequence,
+            queueLength: Array.isArray(s.sequenceQueue) ? s.sequenceQueue.length : 0,
+            triggers: Array.isArray(s.triggers) ? s.triggers.length : 0,
+            inputLockFrames: s.inputLockFrames,
+            safeMode: !!s.safeMode,
+            accessibility: s.accessibility,
+            validation: FWB.validateConfig()
+        };
+    };
+
+    FWB.debugPrintTriggers = function() {
+        const s = state();
+        console.group(`[${PLUGIN_NAME}] Triggers`);
+        console.table((s.triggers || []).map((trigger, index) => ({
+            index,
+            id: trigger.id || "",
+            condition: trigger.condition || trigger.if || "",
+            action: trigger.action || "",
+            once: trigger.once || "",
+            cooldown: trigger.cooldown || 0
+        })));
+        console.groupEnd();
+        return s.triggers || [];
+    };
+
+    FWB.debugPrintSequences = function() {
+        const s = state();
+        const builtIns = Object.keys(SEQUENCES || {});
+        const custom = Object.keys(s.customSequences || {});
+        console.group(`[${PLUGIN_NAME}] Sequences`);
+        console.log("Built-in:", builtIns);
+        console.log("Custom:", custom);
+        console.log("Current:", s.sequence || null);
+        console.log("Queue:", s.sequenceQueue || []);
+        console.groupEnd();
+        return { builtIns, custom, current: s.sequence || null, queue: s.sequenceQueue || [] };
+    };
+
+    FWB.debugPrintMemory = function() {
+        const s = state();
+        console.group(`[${PLUGIN_NAME}] Memory`);
+        console.log("Memory:", s.memory || {});
+        console.log("Session Flags:", s.sessionFlags || {});
+        console.log("Narrative:", s.narrativeState);
+        console.log("History:", s.narrativeHistory || []);
+        console.groupEnd();
+        return { memory: s.memory || {}, flags: s.sessionFlags || {}, narrative: s.narrativeState, history: s.narrativeHistory || [] };
+    };
+
+    FWB.debugOpenInspector = function() {
+        const snapshot = FWB.debugSnapshot();
+        console.group(`[${PLUGIN_NAME}] Inspector Snapshot`);
+        console.log(snapshot);
+        console.groupEnd();
+        return snapshot;
+    };
+
+    FWB.compat = FWB.compat || {};
+
+    FWB.compat.detectPlugins = function() {
+        const list = [];
+        const scripts = safeCall("document scripts", () => Array.prototype.slice.call(document.scripts || []), []);
+        scripts.forEach(script => {
+            const src = String(script.src || "");
+            if (!src) return;
+            const name = src.split("/").pop().replace(/\.js(?:\?.*)?$/i, "");
+            if (name && name !== PLUGIN_NAME) list.push(name);
+        });
+        return list;
+    };
+
+    FWB.compat.report = function() {
+        const plugins = FWB.compat.detectPlugins();
+        const report = {
+            pluginCount: plugins.length,
+            plugins,
+            likelyVisuStella: plugins.filter(name => /visu|stella|battle|menu|message|save/i.test(name))
+        };
+        console.group(`[${PLUGIN_NAME}] Compatibility Report`);
+        console.log(report);
+        console.groupEnd();
+        return report;
+    };
+
+    // Plugin commands for v4.13.0 hardening
+    PluginManager.registerCommand(PLUGIN_NAME, "EnableSafeMode", () => FWB.enableSafeMode());
+    PluginManager.registerCommand(PLUGIN_NAME, "DisableSafeMode", () => FWB.disableSafeMode());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ExportConfig", () => {
+        console.log(`[${PLUGIN_NAME}] Exported Config:\n${FWB.exportConfig()}`);
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ImportConfig", args => {
+        FWB.importConfig(argString(args, "configJson", "{}"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "DebugPrintTriggers", () => FWB.debugPrintTriggers());
+    PluginManager.registerCommand(PLUGIN_NAME, "DebugPrintSequences", () => FWB.debugPrintSequences());
+    PluginManager.registerCommand(PLUGIN_NAME, "DebugPrintMemory", () => FWB.debugPrintMemory());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ValidateConfig", () => {
+        console.log(`[${PLUGIN_NAME}] Config validation`, FWB.validateConfig());
+    });
+
 
     // -------------------------------------------------------------------------
     // Public read-only helpers

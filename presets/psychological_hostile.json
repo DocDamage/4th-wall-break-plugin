@@ -1,0 +1,15 @@
+{
+  "name": "Psychological Hostile",
+  "presence": 75,
+  "narrativeState": "hostile",
+  "triggers": [
+    {
+      "id": "hostile_presence_system_failure",
+      "condition": "presence GTE 75",
+      "action": "sequence",
+      "value": "System Failure",
+      "cooldown": 2400,
+      "once": "save"
+    }
+  ]
+}

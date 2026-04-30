@@ -1,0 +1,15 @@
+{
+  "name": "Meta Comedy",
+  "presence": 35,
+  "narrativeState": "curious",
+  "triggers": [
+    {
+      "id": "menu_peek",
+      "condition": "menus GTE 5",
+      "action": "message",
+      "value": "You really like menus, huh?",
+      "cooldown": 1800,
+      "once": "save"
+    }
+  ]
+}
