@@ -1,8 +1,8 @@
 /*:
  * @target MZ
- * @plugindesc v4.0.0 Feature-packed staged 4th-wall break / screen-crack system with escalation, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
- * @author ChatGPT
- * @url
+ * @plugindesc v4.1.0 Feature-packed staged 4th-wall break engine with Phase 1 event bus, condition engine, presence system, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
+ * @author DocDamage
+ * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
  * @help
  * FourthWallBreaks.js
@@ -29,6 +29,11 @@
  *   FourthWallBreaks.pulse(60, 0.5)
  *   FourthWallBreaks.runSequence("Reality Fracture")
  *   FourthWallBreaks.addBreach(10)
+ *   FourthWallBreaks.lockInput(60)
+ *   FourthWallBreaks.unlockInput()
+ *   FourthWallBreaks.lockBreach()
+ *   FourthWallBreaks.unlockBreach()
+ *   FourthWallBreaks.registerSequence("My Sequence", "[...]")
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
  *
  * Built-in sequence names:
@@ -50,16 +55,31 @@
  *   <FWBGlitch: 0.25>
  *   <FWBCommonEvent: 12>
  *   <FWBForbiddenRoom>
+ *   <FWBMapEnterStage: 2>
+ *   <FWBMapEnterSequence: Reality Fracture>
  *   <FWBOnAppearStage: 2>        enemy note
+ *   <FWBStage90: 1>              enemy HP <= 90%
  *   <FWBStage75: 2>              enemy HP <= 75%
  *   <FWBStage50: 3>              enemy HP <= 50%
  *   <FWBStage25: 4>              enemy HP <= 25%
+ *   <FWBStage10: 4>              enemy HP <= 10%
  *   <FWBSkillCrack: 2>           skill/item note
  *   <FWBSkillPulse>
  *   <FWBDeathCrack: 3>           actor/enemy note
  *   <FWBRegion13Stage: 2>        map note; triggers on region 13
  *   <FWBRegion13Pulse>
  *   <FWBRegion13Clear>
+ *   <FWBRegion13Breach: 10>
+ *   <FWBRegion13Sequence: Boss Break>
+ *   <FWBRegion13Glitch: 0.25>
+ *   <FWBRegion13CommonEvent: 5>
+ *
+ * Message tokens supported in Play 4th Wall Break and sequence message steps:
+ *   {player} {saves} {loads} {deaths} {menus} {stage} {breach}
+ *
+ * Custom sequence step actions:
+ *   stage, escalate, reduce, clear, pulse, flash, glitch, speaker, message,
+ *   breach, commonEvent, lockInput, unlockInput
  *
  * Safe save/load illusions only. This plugin does not alter real save files except
  * for normal RPG Maker saved game data containing its own state.
@@ -242,7 +262,7 @@
  * @text Region Rules JSON
  * @type note
  * @default []
- * @desc Example: [{"regionId":13,"action":"stage","stage":2},{"regionId":14,"action":"pulse","duration":60,"intensity":0.5},{"regionId":15,"action":"clear"}]
+ * @desc Example: [{"regionId":13,"action":"stage","stage":2},{"regionId":14,"action":"sequence","sequenceName":"Boss Break"},{"regionId":15,"action":"commonEvent","id":5}]
  *
  * @param StageProfilesJson
  * @text Stage Profiles Override JSON
@@ -371,6 +391,32 @@
  * @option hybrid
  * @default hybrid
  *
+
+ * @command LockInput
+ * @text Lock Input
+ * @arg frames
+ * @type number
+ * @min 1
+ * @default 60
+ *
+ * @command UnlockInput
+ * @text Unlock Input
+ *
+ * @command LockBreachMeter
+ * @text Lock Breach Meter
+ *
+ * @command UnlockBreachMeter
+ * @text Unlock Breach Meter
+ *
+ * @command RegisterSequence
+ * @text Register Custom Sequence
+ * @arg sequenceName
+ * @type string
+ * @default Custom Break
+ * @arg customJson
+ * @type note
+ * @default []
+ *
  * @command RunBreakSequence
  * @text Run Break Sequence
  * @arg sequenceName
@@ -478,6 +524,31 @@
  * @type boolean
  * @default false
  *
+ * @command SetPresence
+ * @text Set Presence
+ * @arg value
+ * @type number
+ * @min 0
+ * @max 100
+ * @default 50
+ *
+ * @command AddPresence
+ * @text Add Presence
+ * @arg amount
+ * @type number
+ * @min -100
+ * @max 100
+ * @default 10
+ *
+ * @command ClearPresence
+ * @text Clear Presence
+ *
+ * @command SetNarrativeState
+ * @text Set Narrative State
+ * @arg stateName
+ * @type string
+ * @default neutral
+ *
  * @command SetRandomSubtle
  * @text Set Random Subtle Events
  * @arg enabled
@@ -527,7 +598,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.0.0";
+    const VERSION = "4.1.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -709,6 +780,7 @@
             randomOffset: 8,
             randomFlip: true,
             chromatic: false,
+            chromaticOffset: 2,
             scanlines: 0,
             staticNoise: 0,
             inputLock: 0,
@@ -737,6 +809,7 @@
             randomOffset: 12,
             randomFlip: true,
             chromatic: false,
+            chromaticOffset: 2,
             scanlines: 0,
             staticNoise: 0.01,
             inputLock: 0,
@@ -765,6 +838,7 @@
             randomOffset: 16,
             randomFlip: true,
             chromatic: true,
+            chromaticOffset: 2,
             scanlines: 0.08,
             staticNoise: 0.025,
             inputLock: 0,
@@ -793,6 +867,7 @@
             randomOffset: 8,
             randomFlip: false,
             chromatic: true,
+            chromaticOffset: 2,
             scanlines: 0.16,
             staticNoise: 0.045,
             inputLock: 10,
@@ -872,6 +947,113 @@
         });
     }
 
+
+    // -------------------------------------------------------------------------
+    // Phase 1 Core Architecture: Event Bus and Condition Engine
+    // -------------------------------------------------------------------------
+
+    const EventBus = {};
+
+    FWB.on = function(eventName, handler) {
+        eventName = String(eventName || "");
+        if (!eventName || typeof handler !== "function") return handler;
+        EventBus[eventName] = EventBus[eventName] || [];
+        if (!EventBus[eventName].includes(handler)) EventBus[eventName].push(handler);
+        return handler;
+    };
+
+    FWB.off = function(eventName, handler) {
+        eventName = String(eventName || "");
+        if (!EventBus[eventName]) return;
+        EventBus[eventName] = EventBus[eventName].filter(fn => fn !== handler);
+    };
+
+    FWB.emit = function(eventName, payload) {
+        eventName = String(eventName || "");
+        const handlers = EventBus[eventName] || [];
+        handlers.slice().forEach(handler => {
+            try {
+                handler(payload || {}, state());
+            } catch (e) {
+                if (Settings && Settings.debugMode) console.warn(`[${PLUGIN_NAME}] event handler failed: ${eventName}`, e);
+            }
+        });
+    };
+
+    function conditionContext() {
+        const s = state();
+        return {
+            stage: Number(s.stage || 0),
+            breach: Number(s.breachMeter || 0),
+            breachMeter: Number(s.breachMeter || 0),
+            presence: Number(s.presence || 0),
+            saves: Number(s.trackers && s.trackers.saveCount || 0),
+            loads: Number(s.trackers && s.trackers.loadCount || 0),
+            deaths: Number(s.trackers && s.trackers.deathCount || 0),
+            menus: Number(s.trackers && s.trackers.menuOpenCount || 0),
+            idle: Number(s.trackers && s.trackers.idleFrames || 0),
+            highestStage: Number(s.highestStage || 0),
+            totalBreaks: Number(s.totalBreaks || 0),
+            narrativeState: String(s.narrativeState || "neutral"),
+            memory: s.memory || {},
+            flag: s.flags || {},
+            flags: s.flags || {}
+        };
+    }
+
+    function resolveConditionValue(path, ctx) {
+        path = String(path || "").trim();
+        if (/^[-+]?\d+(?:\.\d+)?$/.test(path)) return Number(path);
+        if (/^(true|false)$/i.test(path)) return /^true$/i.test(path);
+        const quoted = /^(["'])(.*)\1$/.exec(path);
+        if (quoted) return quoted[2];
+        const parts = path.split(".");
+        let value = ctx;
+        for (let i = 0; i < parts.length; i++) {
+            const key = parts[i];
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return undefined;
+            value = value ? value[key] : undefined;
+        }
+        return value;
+    }
+
+    function evalSimpleCondition(expr, ctx) {
+        expr = String(expr || "").trim();
+        if (!expr) return true;
+        if (expr[0] === "!") return !evalSimpleCondition(expr.slice(1), ctx);
+        const match = /^(.*?)\s*(>=|<=|==|!=|>|<)\s*(.*?)$/.exec(expr);
+        if (!match) return !!resolveConditionValue(expr, ctx);
+        const left = resolveConditionValue(match[1], ctx);
+        const right = resolveConditionValue(match[3], ctx);
+        switch (match[2]) {
+            case ">=": return Number(left) >= Number(right);
+            case "<=": return Number(left) <= Number(right);
+            case ">": return Number(left) > Number(right);
+            case "<": return Number(left) < Number(right);
+            case "==": return String(left) === String(right);
+            case "!=": return String(left) !== String(right);
+            default: return false;
+        }
+    }
+
+    FWB.evalCondition = function(condition) {
+        condition = String(condition || "").trim();
+        if (!condition) return true;
+        if (!/^[A-Za-z0-9_ .!<>=&|+\-"']+$/.test(condition)) {
+            logDebug("unsafe condition rejected", condition);
+            return false;
+        }
+        const ctx = conditionContext();
+        try {
+            return condition.split(/\s*\|\|\s*/).some(orPart => {
+                return orPart.split(/\s*&&\s*/).every(andPart => evalSimpleCondition(andPart, ctx));
+            });
+        } catch (e) {
+            logDebug("condition failed", condition, e);
+            return false;
+        }
+    };
+
     const SEQUENCES = {
         "Subtle Warning": [
             { time: 0, action: "pulse", duration: 30, intensity: 0.2 },
@@ -930,9 +1112,15 @@
             targetStage: 0,
             mode: Settings.defaultCrackMode,
             locked: false,
+            breachLocked: false,
+            _syncDirty: true,
             cracks: [],
             nextCrackId: 1,
             breachMeter: 0,
+            presence: 0,
+            narrativeState: "neutral",
+            memory: {},
+            flags: {},
             bindBreachToStage: Settings.bindBreachToStage,
             seenBreakIds: [],
             totalBreaks: 0,
@@ -960,6 +1148,7 @@
             lastRegionId: 0,
             lastMapId: 0,
             processedTriggers: {},
+            triggerCooldowns: {},
             accessibility: {
                 reduceFlashing: Settings.reduceFlashing,
                 reduceScreenShake: Settings.reduceScreenShake,
@@ -985,6 +1174,11 @@
         if (!Array.isArray(s.cracks)) s.cracks = [];
         if (!Array.isArray(s.seenBreakIds)) s.seenBreakIds = [];
         if (!s.processedTriggers || typeof s.processedTriggers !== "object") s.processedTriggers = {};
+        if (!s.triggerCooldowns || typeof s.triggerCooldowns !== "object") s.triggerCooldowns = {};
+        if (!s.memory || typeof s.memory !== "object") s.memory = {};
+        if (!s.flags || typeof s.flags !== "object") s.flags = {};
+        if (!Number.isFinite(Number(s.presence))) s.presence = 0;
+        if (!s.narrativeState) s.narrativeState = "neutral";
         if (!Number.isFinite(Number(s.nextCrackId))) s.nextCrackId = 1;
         return s;
     }
@@ -1017,8 +1211,15 @@
         return clamp(value, 0, access().maxOverlayOpacity !== undefined ? access().maxOverlayOpacity : 255);
     }
 
-    function syncVariablesAndSwitches() {
+    function markSyncDirty() {
+        state()._syncDirty = true;
+    }
+
+    function syncVariablesAndSwitches(force) {
         const s = state();
+        if (!force && !s._syncDirty) return;
+        s._syncDirty = false;
+
         if (root.$gameVariables) {
             if (Settings.stageVariableId > 0) $gameVariables.setValue(Settings.stageVariableId, s.stage);
             if (Settings.breachVariableId > 0) $gameVariables.setValue(Settings.breachVariableId, Math.round(s.breachMeter));
@@ -1169,7 +1370,7 @@
         } else if (stage > 0 && stage !== previousStage) {
             safeReserveCommonEvent(Settings.commonEvents[stage]);
         }
-        syncVariablesAndSwitches();
+        markSyncDirty();
         logDebug("stage", previousStage, "->", stage, "fade", fade);
     }
 
@@ -1187,6 +1388,7 @@
         }
         updateStackedCracks(stage, options.fadeFrames, options);
         fireStageEffects(stage, previous, options);
+        if (stage !== previous) FWB.emit("stageChanged", { previousStage: previous, stage: stage, options: options });
         return s.stage;
     };
 
@@ -1228,22 +1430,47 @@
 
     FWB.lock = function() {
         state().locked = true;
+        markSyncDirty();
     };
 
     FWB.unlock = function() {
         state().locked = false;
+        markSyncDirty();
+    };
+
+    FWB.lockInput = function(frames) {
+        const s = state();
+        s.inputLockFrames = Math.max(s.inputLockFrames || 0, Math.max(1, Number(frames || 60)));
+        FWB.emit("inputLocked", { frames: s.inputLockFrames });
+    };
+
+    FWB.unlockInput = function() {
+        state().inputLockFrames = 0;
+        FWB.emit("inputUnlocked", {});
+    };
+
+    FWB.lockBreach = function() {
+        state().breachLocked = true;
+        markSyncDirty();
+    };
+
+    FWB.unlockBreach = function() {
+        state().breachLocked = false;
+        markSyncDirty();
     };
 
     FWB.setMode = function(mode) {
         mode = String(mode || "hybrid").toLowerCase();
         if (!["replace", "stack", "hybrid"].includes(mode)) mode = "hybrid";
         state().mode = mode;
+        markSyncDirty();
     };
 
     FWB.setRandomSubtle = function(enabled) {
         const s = state();
         s.randomSubtleEnabled = !!enabled;
         s.randomCooldown = randomInt(Settings.randomMinCooldownFrames, Settings.randomMaxCooldownFrames);
+        markSyncDirty();
     };
 
     FWB.setAccessibility = function(options) {
@@ -1257,6 +1484,7 @@
             crack.targetOpacity = maxOpacity(crack.targetOpacity);
             crack.opacity = maxOpacity(crack.opacity);
         });
+        markSyncDirty();
     };
 
     // -------------------------------------------------------------------------
@@ -1274,18 +1502,85 @@
 
     FWB.setBreach = function(value, options) {
         const s = state();
+        if (s.breachLocked && !(options && options.force)) return s.breachMeter;
+        const previousBreach = Number(s.breachMeter || 0);
         s.breachMeter = clamp(Number(value || 0), 0, 100);
         if (s.bindBreachToStage) {
             const stage = stageFromBreach(s.breachMeter);
             FWB.setStage(stage, Object.assign({ count: false }, options || {}));
         }
-        syncVariablesAndSwitches();
+        markSyncDirty();
+        if (previousBreach !== s.breachMeter) FWB.emit("breachChanged", { previousBreach: previousBreach, breach: s.breachMeter, options: options || {} });
         return s.breachMeter;
     };
 
     FWB.addBreach = function(amount, options) {
         const s = state();
         return FWB.setBreach((s.breachMeter || 0) + Number(amount || 0), options || {});
+    };
+
+
+
+    // -------------------------------------------------------------------------
+    // Presence and Narrative State
+    // -------------------------------------------------------------------------
+
+    FWB.setPresence = function(value, options) {
+        const s = state();
+        const previousPresence = Number(s.presence || 0);
+        s.presence = clamp(Number(value || 0), 0, 100);
+        markSyncDirty();
+        if (previousPresence !== s.presence) FWB.emit("presenceChanged", { previousPresence: previousPresence, presence: s.presence, options: options || {} });
+        return s.presence;
+    };
+
+    FWB.addPresence = function(amount, options) {
+        const s = state();
+        return FWB.setPresence((s.presence || 0) + Number(amount || 0), options || {});
+    };
+
+    FWB.getPresence = function() {
+        return Number(state().presence || 0);
+    };
+
+    FWB.clearPresence = function() {
+        return FWB.setPresence(0);
+    };
+
+    FWB.setNarrativeState = function(value) {
+        const s = state();
+        const previousState = String(s.narrativeState || "neutral");
+        s.narrativeState = String(value || "neutral");
+        markSyncDirty();
+        if (previousState !== s.narrativeState) FWB.emit("narrativeStateChanged", { previousState: previousState, narrativeState: s.narrativeState });
+        return s.narrativeState;
+    };
+
+    FWB.getNarrativeState = function() {
+        return String(state().narrativeState || "neutral");
+    };
+
+    FWB.memory = {
+        set: function(key, value) {
+            const s = state();
+            s.memory[String(key || "")] = value;
+            markSyncDirty();
+            return value;
+        },
+        get: function(key, def) {
+            const s = state();
+            key = String(key || "");
+            return Object.prototype.hasOwnProperty.call(s.memory || {}, key) ? s.memory[key] : def;
+        },
+        add: function(key, amount) {
+            const current = Number(this.get(key, 0) || 0);
+            return this.set(key, current + Number(amount || 1));
+        },
+        clear: function(key) {
+            const s = state();
+            delete s.memory[String(key || "")];
+            markSyncDirty();
+        }
     };
 
     // -------------------------------------------------------------------------
@@ -1361,7 +1656,9 @@
             .replace(/\{deaths\}/gi, String(s.trackers.deathCount || 0))
             .replace(/\{menus\}/gi, String(s.trackers.menuOpenCount || 0))
             .replace(/\{stage\}/gi, String(s.stage || 0))
-            .replace(/\{breach\}/gi, String(Math.round(s.breachMeter || 0)));
+            .replace(/\{breach\}/gi, String(Math.round(s.breachMeter || 0)))
+            .replace(/\{presence\}/gi, String(Math.round(s.presence || 0)))
+            .replace(/\{narrative\}/gi, String(s.narrativeState || "neutral"));
     }
 
     FWB.playBreakMoment = function(options) {
@@ -1393,13 +1690,21 @@
             if (speaker && $gameMessage.setSpeakerName) $gameMessage.setSpeakerName(speaker);
             $gameMessage.add(msg);
         }
-        syncVariablesAndSwitches();
+        markSyncDirty();
         return true;
     };
 
     // -------------------------------------------------------------------------
     // Sequences
     // -------------------------------------------------------------------------
+
+    FWB.registerSequence = function(name, customJson) {
+        const sequenceName = String(name || "").trim();
+        const steps = tryParseJson(customJson, null);
+        if (!sequenceName || !Array.isArray(steps)) return false;
+        SEQUENCES[sequenceName] = JSON.parse(JSON.stringify(steps)).sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+        return true;
+    };
 
     FWB.runSequence = function(name, customJson) {
         const s = state();
@@ -1414,10 +1719,24 @@
             steps: JSON.parse(JSON.stringify(steps)).sort((a, b) => Number(a.time || 0) - Number(b.time || 0))
         };
         logDebug("sequence", s.sequence.name, s.sequence.steps);
+        FWB.emit("sequenceStarted", { name: s.sequence.name, steps: s.sequence.steps });
     };
 
     function executeSequenceStep(step) {
         if (!step) return;
+        const s = state();
+        const stepId = String(step.id || step.name || "");
+        if (step.if && !FWB.evalCondition(step.if)) return;
+        if (step.chance !== undefined && Math.random() > Number(step.chance)) return;
+        if (step.once && stepId && s.processedTriggers[`sequenceStep_${stepId}`]) return;
+        if (step.cooldown && stepId) {
+            const key = `sequenceCooldown_${stepId}`;
+            const now = root.Graphics && Graphics.frameCount ? Graphics.frameCount : 0;
+            if (s.triggerCooldowns && s.triggerCooldowns[key] && now - s.triggerCooldowns[key] < Number(step.cooldown)) return;
+            s.triggerCooldowns = s.triggerCooldowns || {};
+            s.triggerCooldowns[key] = now;
+        }
+        if (step.once && stepId) s.processedTriggers[`sequenceStep_${stepId}`] = true;
         const action = String(step.action || "stage").toLowerCase();
         switch (action) {
             case "stage":
@@ -1456,6 +1775,23 @@
                 break;
             case "commonevent":
                 safeReserveCommonEvent(Number(step.id || step.commonEventId || 0));
+                break;
+            case "lockinput":
+                FWB.lockInput(Number(step.frames || step.duration || 60));
+                break;
+            case "unlockinput":
+                FWB.unlockInput();
+                break;
+            case "presence":
+                if (step.value !== undefined) FWB.setPresence(Number(step.value));
+                else FWB.addPresence(Number(step.amount || 0));
+                break;
+            case "narrative":
+            case "setnarrativestate":
+                FWB.setNarrativeState(String(step.value || step.state || "neutral"));
+                break;
+            case "memory":
+                if (step.key) FWB.memory.set(step.key, step.value);
                 break;
         }
     }
@@ -1554,8 +1890,9 @@
             blue.blendMode = profileBlendMode("screen");
             container.addChild(red);
             container.addChild(blue);
-            container._fwbSprites.push({ sprite: red, x: -2, y: 0, tint: 0xff7777, alpha: 0.25 });
-            container._fwbSprites.push({ sprite: blue, x: 2, y: 0, tint: 0x77aaff, alpha: 0.25 });
+            const offset = Number(profile(crack.stage).chromaticOffset || 2);
+            container._fwbSprites.push({ sprite: red, x: -offset, y: 0, tint: 0xff7777, alpha: 0.25 });
+            container._fwbSprites.push({ sprite: blue, x: offset, y: 0, tint: 0x77aaff, alpha: 0.25 });
         }
         return container;
     }
@@ -1600,8 +1937,11 @@
         const scanAmount = p ? Number(p.scanlines || 0) : 0;
 
         overlay._fwbStatic.clear();
-        overlay._fwbScanlines.clear();
-        if (stage <= 0 || access().disableFlicker) return;
+        if (stage <= 0 || access().disableFlicker) {
+            overlay._fwbScanlines.clear();
+            overlay._fwbScanlineCacheKey = "";
+            return;
+        }
 
         if (staticAmount > 0 && Graphics.frameCount % 3 === 0) {
             const count = Math.round(staticAmount * 140);
@@ -1615,12 +1955,18 @@
                 overlay._fwbStatic.endFill();
             }
         }
-        if (scanAmount > 0) {
-            overlay._fwbScanlines.beginFill(0x000000, scanAmount * 0.35);
-            for (let y = 0; y < Graphics.height; y += 6) {
-                overlay._fwbScanlines.drawRect(0, y, Graphics.width, 1);
+
+        const scanlineKey = `${stage}:${scanAmount}:${Graphics.width}:${Graphics.height}`;
+        if (overlay._fwbScanlineCacheKey !== scanlineKey) {
+            overlay._fwbScanlines.clear();
+            overlay._fwbScanlineCacheKey = scanlineKey;
+            if (scanAmount > 0) {
+                overlay._fwbScanlines.beginFill(0x000000, scanAmount * 0.35);
+                for (let y = 0; y < Graphics.height; y += 6) {
+                    overlay._fwbScanlines.drawRect(0, y, Graphics.width, 1);
+                }
+                overlay._fwbScanlines.endFill();
             }
-            overlay._fwbScanlines.endFill();
         }
     }
 
@@ -1637,7 +1983,7 @@
         overlay._fwbDebugText.visible = true;
         overlay._fwbDebugText.x = 8;
         overlay._fwbDebugText.y = 8;
-        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}\nMode: ${s.mode}  Locked: ${s.locked}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}`;
+        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)}\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}`;
     }
 
     function updateOverlay(scene) {
@@ -1725,7 +2071,9 @@
         }
         s.sequence.frame += 1;
         if (s.sequence.index >= s.sequence.steps.length) {
+            const name = s.sequence.name;
             s.sequence = null;
+            FWB.emit("sequenceEnded", { name: name });
         }
     }
 
@@ -1773,7 +2121,8 @@
         s.randomCooldown -= 1;
         if (s.randomCooldown > 0) return;
         s.randomCooldown = randomInt(Settings.randomMinCooldownFrames, Settings.randomMaxCooldownFrames);
-        const stage = randomInt(1, Settings.randomStageMax);
+        const presenceBoost = Math.floor(Number(s.presence || 0) / 35);
+        const stage = clamp(randomInt(1, Settings.randomStageMax) + presenceBoost, 1, 4);
         const roll = Math.random();
         if (roll < 0.4) FWB.pulse(randomInt(25, 55), randomRange(0.15, 0.35));
         else if (roll < 0.8) FWB.setStage(stage, { fadeFrames: randomInt(20, 45), count: true });
@@ -1833,6 +2182,12 @@
         if (noteFlag(note, [`FWBRegion${regionId}Clear`, `FourthWallRegion${regionId}Clear`])) rules.push({ action: "clear" });
         const breach = noteValue(note, [`FWBRegion${regionId}Breach`, `FourthWallRegion${regionId}Breach`]);
         if (breach !== null) rules.push({ action: "breach", amount: Number(breach) });
+        const sequence = noteValue(note, [`FWBRegion${regionId}Sequence`, `FourthWallRegion${regionId}Sequence`]);
+        if (sequence !== null) rules.push({ action: "sequence", sequenceName: String(sequence) });
+        const glitch = noteValue(note, [`FWBRegion${regionId}Glitch`, `FourthWallRegion${regionId}Glitch`]);
+        if (glitch !== null) rules.push({ action: "glitch", amount: Number(glitch), lines: 1 });
+        const commonEvent = noteValue(note, [`FWBRegion${regionId}CommonEvent`, `FourthWallRegion${regionId}CommonEvent`]);
+        if (commonEvent !== null) rules.push({ action: "commonEvent", id: Number(commonEvent) });
         return rules;
     }
 
@@ -1845,6 +2200,7 @@
         else if (action === "breach") FWB.addBreach(Number(rule.amount || 0));
         else if (action === "sequence") FWB.runSequence(String(rule.sequenceName || rule.name || "Reality Fracture"));
         else if (action === "glitch") FWB.glitchNextMessage(Number(rule.amount || 0.2), Number(rule.lines || 1));
+        else if (action === "commonevent") safeReserveCommonEvent(Number(rule.id || rule.commonEventId || 0));
     }
 
     function onRegionChange(regionId) {
@@ -1911,7 +2267,7 @@
         if (battler.isEnemy && battler.isEnemy() && battler.enemy) data = battler.enemy();
         const stage = noteValue(noteText(data), ["FWBDeathCrack", "FourthWallDeathCrack"]);
         if (stage !== null) FWB.setStage(Number(stage), { fadeFrames: 25, glitchOnStage: true });
-        syncVariablesAndSwitches();
+        markSyncDirty();
     }
 
     // -------------------------------------------------------------------------
@@ -1947,7 +2303,7 @@
         DataManager.setupNewGame = function() {
             _DataManager_setupNewGame.apply(this, arguments);
             if (root.$gameSystem) $gameSystem._fourthWallBreaks = defaultState();
-            syncVariablesAndSwitches();
+            markSyncDirty();
         };
 
         const _DataManager_saveGame = DataManager.saveGame;
@@ -1957,7 +2313,7 @@
                 if (value !== false) {
                     const s = state();
                     s.trackers.saveCount += 1;
-                    syncVariablesAndSwitches();
+                    markSyncDirty();
                 }
                 return value;
             };
@@ -1972,7 +2328,7 @@
                 if (value !== false) {
                     const s = state();
                     s.trackers.loadCount += 1;
-                    syncVariablesAndSwitches();
+                    markSyncDirty();
                 }
                 return value;
             };
@@ -1998,7 +2354,7 @@
             s.trackers.menuOpenCount += 1;
             const stage = noteValue(noteText(root.$dataSystem), ["FWBMenuOpenStage"]);
             if (stage !== null) FWB.setStage(Number(stage), { fadeFrames: 30 });
-            syncVariablesAndSwitches();
+            markSyncDirty();
         };
     }
 
@@ -2009,7 +2365,7 @@
             const s = state();
             s.trackers.deathCount += 1;
             FWB.playBreakMoment({ breakId: `gameover_${s.trackers.deathCount}`, severity: Math.max(1, s.stage), type: "deathBreak", oneShot: false });
-            syncVariablesAndSwitches();
+            markSyncDirty();
         };
     }
 
@@ -2020,12 +2376,20 @@
             const s = state();
             s.lastRegionId = 0;
             s.lastMapId = mapId;
+            clearTriggerPrefix("enemyAppear_");
+            clearTriggerPrefix("enemyHp_");
+            clearTriggerPrefix("mapNote_");
             clearTriggerPrefix(`region_${mapId}_`);
             const visits = s.trackers.mapVisits;
             visits[mapId] = (visits[mapId] || 0) + 1;
+            FWB.emit("mapEntered", { mapId: mapId, visits: visits[mapId] });
             if (root.$dataMap) {
                 const note = noteText($dataMap);
                 processGenericNote(note, `map_${mapId}`);
+                const enterStage = noteValue(note, ["FWBMapEnterStage", "FourthWallMapEnterStage"]);
+                if (enterStage !== null) FWB.setStage(Number(enterStage), { fadeFrames: 35 });
+                const enterSequence = noteValue(note, ["FWBMapEnterSequence", "FourthWallMapEnterSequence"]);
+                if (enterSequence !== null) FWB.runSequence(String(enterSequence));
                 if (noteFlag(note, ["FWBForbiddenRoom", "FourthWallForbiddenRoom"])) {
                     const key = `forbidden_${mapId}_${visits[mapId]}`;
                     if (visits[mapId] > 1 && rememberTrigger(key)) FWB.escalate(1, { fadeFrames: 35 });
@@ -2089,12 +2453,14 @@
         const _BattleManager_update = BattleManager.update;
         BattleManager.update = function(timeActive) {
             _BattleManager_update.apply(this, arguments);
-            checkBattleHpTriggers();
+            if (sceneKind(SceneManager._scene) === "battle") checkBattleHpTriggers();
         };
 
         const _BattleManager_endBattle = BattleManager.endBattle;
         BattleManager.endBattle = function(result) {
             _BattleManager_endBattle.apply(this, arguments);
+            clearTriggerPrefix("enemyAppear_");
+            clearTriggerPrefix("enemyHp_");
             if (Settings.clearAfterBattle) FWB.clear({ fadeFrames: 45 });
         };
     }
@@ -2188,6 +2554,19 @@
         FWB.setMode(argString(args, "mode", "hybrid"));
     });
 
+    PluginManager.registerCommand(PLUGIN_NAME, "LockInput", args => {
+        FWB.lockInput(argNumber(args, "frames", 60));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "UnlockInput", () => FWB.unlockInput());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "LockBreachMeter", () => FWB.lockBreach());
+    PluginManager.registerCommand(PLUGIN_NAME, "UnlockBreachMeter", () => FWB.unlockBreach());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "RegisterSequence", args => {
+        FWB.registerSequence(argString(args, "sequenceName", "Custom Break"), argString(args, "customJson", "[]"));
+    });
+
     PluginManager.registerCommand(PLUGIN_NAME, "RunBreakSequence", args => {
         FWB.runSequence(argString(args, "sequenceName", "Reality Fracture"), argString(args, "customJson", ""));
     });
@@ -2225,6 +2604,23 @@
         });
     });
 
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetPresence", args => {
+        FWB.setPresence(argNumber(args, "value", 50));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "AddPresence", args => {
+        FWB.addPresence(argNumber(args, "amount", 10));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearPresence", () => {
+        FWB.clearPresence();
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetNarrativeState", args => {
+        FWB.setNarrativeState(argString(args, "stateName", "neutral"));
+    });
+
     PluginManager.registerCommand(PLUGIN_NAME, "SetRandomSubtle", args => {
         FWB.setRandomSubtle(argBool(args, "enabled", true));
     });
@@ -2251,7 +2647,7 @@
         else if (action === "clear") FWB.clear({ force: true });
         else if (action === "resetMemory") {
             if (root.$gameSystem) $gameSystem._fourthWallBreaks = defaultState();
-            syncVariablesAndSwitches();
+            markSyncDirty();
         }
     });
 
