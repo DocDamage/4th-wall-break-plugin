@@ -1161,6 +1161,7 @@
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
 
+    // region Helpers
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -1256,7 +1257,7 @@
         note = String(note || "");
         names = Array.isArray(names) ? names : [names];
         const pattern = names.map(escapeRegExp).join("|");
-        const re = new RegExp(`<\\s*(?:${pattern})\\s*:\\s*([^>]+)>`, "i");
+        const re = new RegExp(`<\\s*(?:${pattern})\\s*:\\s*(.+?)>`, "i");
         const match = re.exec(note);
         return match ? String(match[1]).trim() : null;
     }
@@ -1271,7 +1272,7 @@
 
     function pageCommentText(event) {
         if (!event || !event.page || !event.page()) return "";
-        const page = event.page();
+        const page = event.event().pages[event.page()];
         if (!page || !Array.isArray(page.list)) return "";
         return page.list
             .filter(cmd => cmd && (cmd.code === 108 || cmd.code === 408))
@@ -1280,7 +1281,7 @@
     }
 
     function removePictureExtension(name) {
-        return String(name || "").replace(/\.png$/i, "");
+        return String(name || "").replace(/\.(png|jpg|jpeg|webp)$/i, "");
     }
 
     function profileBlendMode(value) {
@@ -1314,6 +1315,8 @@
         return "other";
     }
 
+    // endregion Helpers
+    // region Settings and defaults
     // -------------------------------------------------------------------------
     // Settings and defaults
     // -------------------------------------------------------------------------
@@ -1541,6 +1544,8 @@
     }
 
 
+    // endregion Settings and defaults
+    // region Phase 1 Core Architecture: Event Bus and Condition Engine
     // -------------------------------------------------------------------------
     // Phase 1 Core Architecture: Event Bus and Condition Engine
     // -------------------------------------------------------------------------
@@ -1706,6 +1711,8 @@
         ]
     };
 
+    // endregion Phase 1 Core Architecture: Event Bus and Condition Engine
+    // region Presence helpers
     // -------------------------------------------------------------------------
     // Presence helpers
     // -------------------------------------------------------------------------
@@ -1768,6 +1775,8 @@
         return clamp((Number(state().presence || 0) / 100) * Number(multiplier || 1), 0, 1);
     }
 
+    // endregion Presence helpers
+    // region State
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
@@ -1888,6 +1897,7 @@
     function migrateState(s) {
         const def = defaultState();
         if (!s || typeof s !== "object") return def;
+        if (s._migratedVersion === VERSION) return s;
         Object.keys(def).forEach(key => {
             if (s[key] === undefined) s[key] = def[key];
         });
@@ -1933,6 +1943,7 @@
         if (!Number.isFinite(Number(s.presenceDecayFloor))) s.presenceDecayFloor = Settings.presenceDecayFloor;
         if (!s.narrativeState) s.narrativeState = "neutral";
         if (!Number.isFinite(Number(s.nextCrackId))) s.nextCrackId = 1;
+        s._migratedVersion = VERSION;
         return s;
     }
 
@@ -1942,7 +1953,7 @@
             $gameSystem._fourthWallBreaks = migrateState($gameSystem._fourthWallBreaks);
             return $gameSystem._fourthWallBreaks;
         }
-        return migrateState(fallbackState);
+        return fallbackState;
     }
 
     function access() {
@@ -2001,6 +2012,8 @@
         });
     }
 
+    // endregion State
+    // region Crack transitions
     // -------------------------------------------------------------------------
     // Crack transitions
     // -------------------------------------------------------------------------
@@ -2247,6 +2260,8 @@
         markSyncDirty();
     };
 
+    // endregion Crack transitions
+    // region Breach meter
     // -------------------------------------------------------------------------
     // Breach meter
     // -------------------------------------------------------------------------
@@ -2281,6 +2296,8 @@
 
 
 
+    // endregion Breach meter
+    // region Presence and Narrative State
     // -------------------------------------------------------------------------
     // Presence and Narrative State
     // -------------------------------------------------------------------------
@@ -2422,6 +2439,8 @@
         markSyncDirty();
     };
 
+    // endregion Presence and Narrative State
+    // region Phase 4 Trigger Engine
     // -------------------------------------------------------------------------
     // Phase 4 Trigger Engine
     // -------------------------------------------------------------------------
@@ -2613,18 +2632,21 @@
 
     function parseTriggerTags(note, sourceKey, defaultScope) {
         note = String(note || "");
-        const re = /<\s*FWBTrigger\s*:\s*([^>]+)>/gi;
+        const re = /<\s*FWBTrigger\s*:\s*(.+?)>/gi;
         let match;
         while ((match = re.exec(note))) {
             parseTriggerTagContent(match[1], sourceKey, defaultScope);
         }
     }
 
+    // endregion Phase 4 Trigger Engine
+    // region Phase 5 Control Distortion
     // -------------------------------------------------------------------------
     // Phase 5 Control Distortion
     // -------------------------------------------------------------------------
 
-    let fwbOriginalExecuteMove = null;
+    let _lastProcessedMapId = 0;
+    const _eventNoteCache = {};
     let fwbApplyingDelayedMove = false;
 
     FWB.setControlDistortion = function(options) {
@@ -2692,18 +2714,20 @@
             FWB.clearControlDistortion();
             return;
         }
-        if (Array.isArray(s.controlDistortionQueue) && s.controlDistortionQueue.length && fwbOriginalExecuteMove && root.$gamePlayer) {
+        if (Array.isArray(s.controlDistortionQueue) && s.controlDistortionQueue.length && root.$gamePlayer) {
             s.controlDistortionQueue.forEach(item => item.frames -= 1);
             const ready = s.controlDistortionQueue.filter(item => item.frames <= 0);
             s.controlDistortionQueue = s.controlDistortionQueue.filter(item => item.frames > 0);
             ready.forEach(item => {
                 fwbApplyingDelayedMove = true;
-                try { fwbOriginalExecuteMove.call($gamePlayer, item.direction); }
+                try { Game_Player.prototype.executeMove.call($gamePlayer, item.direction); }
                 finally { fwbApplyingDelayedMove = false; }
             });
         }
     }
 
+    // endregion Phase 5 Control Distortion
+    // region Phase 6 UI Corruption and Fake System Layer
     // -------------------------------------------------------------------------
     // Phase 6 UI Corruption and Fake System Layer
     // -------------------------------------------------------------------------
@@ -2770,6 +2794,8 @@
     };
 
 
+    // endregion Phase 6 UI Corruption and Fake System Layer
+    // region Phase 7 Memory and Narrative Expansion
     // -------------------------------------------------------------------------
     // Phase 7 Memory and Narrative Expansion
     // -------------------------------------------------------------------------
@@ -2792,6 +2818,8 @@
         markSyncDirty();
     };
 
+    // endregion Phase 7 Memory and Narrative Expansion
+    // region Phase 8 Battle Break Effects and Enemy Awareness
     // -------------------------------------------------------------------------
     // Phase 8 Battle Break Effects and Enemy Awareness
     // -------------------------------------------------------------------------
@@ -2883,6 +2911,8 @@
         markSyncDirty();
     }
 
+    // endregion Phase 8 Battle Break Effects and Enemy Awareness
+    // region Phase 9 Audio Corruption Layer
     // -------------------------------------------------------------------------
     // Phase 9 Audio Corruption Layer
     // -------------------------------------------------------------------------
@@ -2967,6 +2997,8 @@
     }
 
 
+    // endregion Phase 9 Audio Corruption Layer
+    // region Phase 10-12: Visual distortion, meta events, real-time awareness, inspector
     // -------------------------------------------------------------------------
     // Phase 10-12: Visual distortion, meta events, real-time awareness, inspector
     // -------------------------------------------------------------------------
@@ -3180,6 +3212,8 @@
         return { valid: errors.length === 0, errors: errors, warnings: warnings, snapshot: FWB.debugSnapshot() };
     };
 
+    // endregion Phase 10-12: Visual distortion, meta events, real-time awareness, inspector
+    // region Glitch text and messages
     // -------------------------------------------------------------------------
     // Glitch text and messages
     // -------------------------------------------------------------------------
@@ -3297,6 +3331,8 @@
         return true;
     };
 
+    // endregion Glitch text and messages
+    // region Sequences
     // -------------------------------------------------------------------------
     // Sequences
     // -------------------------------------------------------------------------
@@ -3693,6 +3729,8 @@
         FWB.emit("sequenceStepExecuted", { sequence: runtime.name, step: step, index: index, action: action });
     }
 
+    // endregion Sequences
+    // region Overlay rendering
     // -------------------------------------------------------------------------
     // Overlay rendering
     // -------------------------------------------------------------------------
@@ -3755,13 +3793,17 @@
         overlay.addChild(overlay._fwbScanlines);
         scene._fourthWallOverlay = overlay;
         addOverlayToLayer(scene, overlay);
+        overlay._fwbScene = scene;
         return overlay;
     }
 
     function ensureOverlay(scene) {
         if (!scene) return null;
         const overlay = scene._fourthWallOverlay || makeOverlay(scene);
-        addOverlayToLayer(scene, overlay);
+        if (overlay._fwbScene !== scene) {
+            overlay._fwbScene = scene;
+            addOverlayToLayer(scene, overlay);
+        }
         return overlay;
     }
 
@@ -3833,14 +3875,18 @@
         const staticAmount = p ? Number(p.staticNoise || 0) : 0;
         const scanAmount = p ? Number(p.scanlines || 0) : 0;
 
-        overlay._fwbStatic.clear();
         if (stage <= 0 || access().disableFlicker) {
+            overlay._fwbStatic.clear();
+            overlay._fwbStaticCacheKey = "";
             overlay._fwbScanlines.clear();
             overlay._fwbScanlineCacheKey = "";
             return;
         }
 
-        if (staticAmount > 0 && Graphics.frameCount % 3 === 0) {
+        const staticKey = `${stage}:${staticAmount}:${Graphics.width}:${Graphics.height}`;
+        if (staticAmount > 0 && overlay._fwbStaticCacheKey !== staticKey) {
+            overlay._fwbStatic.clear();
+            overlay._fwbStaticCacheKey = staticKey;
             const count = Math.round(staticAmount * 140);
             for (let i = 0; i < count; i++) {
                 const x = randomInt(0, Graphics.width);
@@ -3851,6 +3897,9 @@
                 overlay._fwbStatic.drawRect(x, y, w, h);
                 overlay._fwbStatic.endFill();
             }
+        } else if (staticAmount <= 0) {
+            overlay._fwbStatic.clear();
+            overlay._fwbStaticCacheKey = "";
         }
 
         const scanlineKey = `${stage}:${scanAmount}:${Graphics.width}:${Graphics.height}`;
@@ -3942,6 +3991,8 @@
         if (overlay._fwbDebugText) overlay.addChild(overlay._fwbDebugText);
     }
 
+    // endregion Overlay rendering
+    // region Runtime update
     // -------------------------------------------------------------------------
     // Runtime update
     // -------------------------------------------------------------------------
@@ -4107,6 +4158,8 @@
         syncVariablesAndSwitches();
     };
 
+    // endregion Runtime update
+    // region Notetag processing
     // -------------------------------------------------------------------------
     // Notetag processing
     // -------------------------------------------------------------------------
@@ -4233,6 +4286,8 @@
         parseRegionRulesFromMapNote(regionId).forEach(runRegionRule);
     }
 
+    // endregion Notetag processing
+    // region Battle hooks
     // -------------------------------------------------------------------------
     // Battle hooks
     // -------------------------------------------------------------------------
@@ -4288,6 +4343,8 @@
         markSyncDirty();
     }
 
+    // endregion Battle hooks
+    // region Menu and save corruption
     // -------------------------------------------------------------------------
     // Menu and save corruption
     // -------------------------------------------------------------------------
@@ -4310,6 +4367,8 @@
         return glitchText(text, amount, DEFAULT_SYMBOLS);
     }
 
+    // endregion Menu and save corruption
+    // region Audio corruption aliases
     // -------------------------------------------------------------------------
     // Audio corruption aliases
     // -------------------------------------------------------------------------
@@ -4344,6 +4403,8 @@
         };
     }
 
+    // endregion Audio corruption aliases
+    // region Core aliases
     // -------------------------------------------------------------------------
     // Core aliases
     // -------------------------------------------------------------------------
@@ -4436,6 +4497,8 @@
             const s = state();
             s.lastRegionId = 0;
             s.lastMapId = mapId;
+            _lastProcessedMapId = mapId;
+            Object.keys(_eventNoteCache).forEach(k => delete _eventNoteCache[k]);
             clearTriggerPrefix("enemyAppear_");
             clearTriggerPrefix("enemyHp_");
             clearTriggerPrefix("mapNote_");
@@ -4459,7 +4522,6 @@
     }
 
     if (typeof Game_Player !== "undefined") {
-        fwbOriginalExecuteMove = Game_Player.prototype.executeMove;
         if (Game_Player.prototype.executeMove) {
             const _Game_Player_executeMove = Game_Player.prototype.executeMove;
             Game_Player.prototype.executeMove = function(direction) {
@@ -4496,9 +4558,13 @@
             if (Settings.repeatedInteractionThreshold > 0 && s.trackers.interactionCounts[key] === Settings.repeatedInteractionThreshold && Settings.repeatedInteractionStage > 0) {
                 FWB.playBreakMoment({ breakId: `repeat_${key}_${s.trackers.interactionCounts[key]}`, severity: Settings.repeatedInteractionStage, type: "randomSubtle" });
             }
-            const eventNote = this.event ? noteText(this.event()) : "";
-            const commentNote = pageCommentText(this);
-            processGenericNote(`${eventNote}\n${commentNote}`, `event_${key}`);
+            const cacheKey = `${mapId}:${eventId}:${this.page ? this.page() : -1}`;
+            if (_lastProcessedMapId !== mapId || !_eventNoteCache[cacheKey]) {
+                const eventNote = this.event ? noteText(this.event()) : "";
+                const commentNote = pageCommentText(this);
+                processGenericNote(`${eventNote}\n${commentNote}`, `event_${key}`);
+                _eventNoteCache[cacheKey] = true;
+            }
             _Game_Event_start.apply(this, arguments);
         };
     }
@@ -4613,8 +4679,10 @@
     if (typeof Window_Options !== "undefined" && Window_Options.prototype.statusText) {
         const _Window_Options_statusText = Window_Options.prototype.statusText;
         Window_Options.prototype.statusText = function(index) {
+            const symbol = this.commandSymbol ? this.commandSymbol(index) : "";
             const name = this.commandName ? this.commandName(index) : "";
             const overrides = state().fakeOptionOverrides || {};
+            if (Object.prototype.hasOwnProperty.call(overrides, symbol)) return String(overrides[symbol]);
             if (Object.prototype.hasOwnProperty.call(overrides, name)) return String(overrides[name]);
             return _Window_Options_statusText.apply(this, arguments);
         };
@@ -4632,6 +4700,8 @@
         };
     }
 
+    // endregion Core aliases
+    // region Plugin commands
     // -------------------------------------------------------------------------
     // Plugin commands
     // -------------------------------------------------------------------------
@@ -4920,6 +4990,8 @@
     PluginManager.registerCommand(PLUGIN_NAME, "ForceSync", () => syncVariablesAndSwitches());
 
 
+    // endregion Plugin commands
+    // region v4.13.0 Release Hardening: safety, config, debug reporters, compatibility
     // -------------------------------------------------------------------------
     // v4.13.0 Release Hardening: safety, config, debug reporters, compatibility
     // -------------------------------------------------------------------------
@@ -5010,6 +5082,14 @@
         if (FWB.clearAudioCorruption) FWB.clearAudioCorruption();
         if (FWB.clearVisualDistortion) FWB.clearVisualDistortion();
         if (FWB.clearUiCorruption) FWB.clearUiCorruption();
+        if (FWB.stopSequence) FWB.stopSequence(true);
+        const fc = s.fakeCrash || {};
+        if (fc.enabled) {
+            s.fakeCrash = { enabled: false, remaining: 0, duration: 0, message: "", returnStage: 0, hasMessaged: false };
+            FWB.unlockInput();
+            FWB.clearVisualDistortion();
+            FWB.emit("fakeCrashEnded", { returnStage: 0, safeMode: true });
+        }
         s.inputLockFrames = 0;
         markSyncDirty();
         FWB.emit("safeModeChanged", { enabled: true });
@@ -5039,9 +5119,9 @@
             presence: s.presence,
             narrativeState: s.narrativeState,
             memory: s.memory || {},
-            flags: s.sessionFlags || {},
-            customSequences: s.customSequences || {},
-            triggers: s.triggers || []
+            flags: s.flags || {},
+            customSequences: Object.assign({}, SEQUENCES),
+            triggers: s.triggerRules || []
         }, null, 2);
     };
 
@@ -5056,7 +5136,7 @@
         if (Number.isFinite(Number(data.presence)) && FWB.setPresence) FWB.setPresence(Number(data.presence), { count: false });
         if (typeof data.narrativeState === "string" && FWB.setNarrativeState) FWB.setNarrativeState(data.narrativeState);
         if (data.memory && typeof data.memory === "object") s.memory = Object.assign(s.memory || {}, data.memory);
-        if (data.flags && typeof data.flags === "object") s.sessionFlags = Object.assign(s.sessionFlags || {}, data.flags);
+        if (data.flags && typeof data.flags === "object") s.flags = Object.assign(s.flags || {}, data.flags);
         if (data.customSequences && typeof data.customSequences === "object") {
             Object.keys(data.customSequences).forEach(name => {
                 if (FWB.registerSequence) FWB.registerSequence(name, data.customSequences[name]);
@@ -5072,25 +5152,29 @@
 
     const PRESET_LIBRARY = {
         "accessibility_safe": {
-            accessibility: { reduceFlashing: true, reduceScreenShake: true, disableFlicker: true, disableStage4: true, maxOverlayOpacity: 140 },
-            safeMode: true
+            name: "Accessibility Safe",
+            safeMode: true,
+            accessibility: { reduceFlashing: true, reduceScreenShake: true, disableFlicker: true, disableStage4: true, maxOverlayOpacity: 140 }
         },
         "horror_subtle": {
+            name: "Horror Subtle",
             presence: 25,
             narrativeState: "aware",
             accessibility: { maxOverlayOpacity: 180 },
             triggers: [
-                { id: "subtle_presence_idle", condition: "idle GTE 1800", action: "sequence", value: "Subtle Warning", cooldown: 1800, once: "session" }
+                { id: "subtle_idle_warning", condition: "idle GTE 1800", action: "sequence", value: "Subtle Warning", cooldown: 1800, once: "session" }
             ]
         },
         "psychological_hostile": {
+            name: "Psychological Hostile",
             presence: 75,
             narrativeState: "hostile",
             triggers: [
-                { id: "hostile_high_presence", condition: "presence GTE 75", action: "sequence", value: "System Failure", cooldown: 2400, once: "save" }
+                { id: "hostile_presence_system_failure", condition: "presence GTE 75", action: "sequence", value: "System Failure", cooldown: 2400, once: "save" }
             ]
         },
         "boss_breach": {
+            name: "Boss Breach",
             presence: 60,
             narrativeState: "hostile",
             triggers: [
@@ -5098,6 +5182,7 @@
             ]
         },
         "meta_comedy": {
+            name: "Meta Comedy",
             presence: 35,
             narrativeState: "curious",
             triggers: [
@@ -5228,6 +5313,8 @@
     });
 
 
+    // endregion v4.13.0 Release Hardening: safety, config, debug reporters, compatibility
+    // region Public read-only helpers
     // -------------------------------------------------------------------------
     // Public read-only helpers
     // -------------------------------------------------------------------------
@@ -5259,3 +5346,4 @@
 
     logDebug(`loaded v${VERSION}`);
 })();
+    // endregion Public read-only helpers
