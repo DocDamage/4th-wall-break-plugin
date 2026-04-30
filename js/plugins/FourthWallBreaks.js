@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.9.0 Feature-packed staged 4th-wall break engine with Phases 7-9 memory/narrative expansion, battle break effects, audio corruption, trigger engine, control distortion, UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
+ * @plugindesc v4.12.0 Feature-packed staged 4th-wall break engine with Phases 10-12 visual distortion, fake crash/meta events, real-time awareness, developer inspector tools, memory/narrative, battle/audio corruption, triggers, control/UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -48,6 +48,10 @@
  *   FourthWallBreaks.fakeDamage(0, 9999)
  *   FourthWallBreaks.corruptBattleLog(0.25, 3)
  *   FourthWallBreaks.setAudioCorruption({ pitchDrift: 0.08, volumeFlutter: 0.15, duration: 300 })
+ *   FourthWallBreaks.setVisualDistortion({ breathAmount: 0.02, rippleAmount: 0.01, duration: 300 })
+ *   FourthWallBreaks.fakeCrash({ message: "Runtime breach detected.", duration: 180, returnStage: 2 })
+ *   FourthWallBreaks.realTime.isLateNight()
+ *   FourthWallBreaks.debugSnapshot()
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
  *
  * Built-in sequence names:
@@ -74,6 +78,9 @@
  *   <FWBMemoryAdd: warnings_seen,1>
  *   <FWBFlag: player_watched>
  *   <FWBAudioCorruption: pitchDrift=0.08,volumeFlutter=0.15,duration=300>
+ *   <FWBVisualDistortion: breathAmount=0.02,rippleAmount=0.01,duration=300>
+ *   <FWBFakeCrash: Runtime breach detected.>
+ *   <FWBRealTimeLateNightMessage: It is late. You should stop.>
  *   <FWBCommonEvent: 12>
  *   <FWBForbiddenRoom>
  *   <FWBMapEnterStage: 2>
@@ -101,13 +108,14 @@
  *
  * Message tokens supported in Play 4th Wall Break and sequence message steps:
  *   {player} {saves} {loads} {deaths} {menus} {stage} {breach} {presence} {presenceTier} {narrative}
- *   {memory:key} {flag:key}
+ *   {memory:key} {flag:key} {hour} {time}
  *
  * Custom sequence step actions:
  *   stage, escalate, reduce, clear, pulse, flash, glitch, speaker, message,
  *   breach, presence, commonEvent, lockInput, unlockInput, narrative, memory,
  *   memoryAdd, clearMemory, flag, clearFlag, fakeDamage, fakeHeal, battleLog,
- *   audioCorruption, clearAudioCorruption, wait, emit, sequence, stopSequence
+ *   audioCorruption, clearAudioCorruption, visualDistortion, clearVisualDistortion,
+ *   fakeCrash, realTimeMessage, debugSnapshot, validateRuntime, wait, emit, sequence, stopSequence
  *
  * Conditional sequence fields:
  *   if, unless, chance, chancePercent, once, cooldown, cooldownScope, id
@@ -1027,6 +1035,72 @@
  * @command ClearAudioCorruption
  * @text Clear Audio Corruption
  *
+ * @command SetVisualDistortion
+ * @text Set Visual Distortion
+ * @arg breathAmount
+ * @type number
+ * @decimals 3
+ * @default 0.02
+ * @arg breathSpeed
+ * @type number
+ * @decimals 3
+ * @default 0.05
+ * @arg rippleAmount
+ * @type number
+ * @decimals 3
+ * @default 0.01
+ * @arg zoomWobble
+ * @type number
+ * @decimals 3
+ * @default 0.01
+ * @arg rotationWobble
+ * @type number
+ * @decimals 3
+ * @default 0.002
+ * @arg duration
+ * @type number
+ * @default 300
+ *
+ * @command ClearVisualDistortion
+ * @text Clear Visual Distortion
+ *
+ * @command FakeCrash
+ * @text Fake Crash / Reboot Illusion
+ * @arg message
+ * @type string
+ * @default Runtime breach detected.
+ * @arg duration
+ * @type number
+ * @default 180
+ * @arg returnStage
+ * @type number
+ * @min 0
+ * @max 4
+ * @default 2
+ *
+ * @command RealTimeMessage
+ * @text Real-Time Conditional Message
+ * @arg condition
+ * @type select
+ * @option lateNight
+ * @option morning
+ * @option afternoon
+ * @option evening
+ * @option always
+ * @default lateNight
+ * @arg message
+ * @type multiline_string
+ * @default It is late. You should stop.
+ * @arg speaker
+ * @type string
+ * @default SYSTEM
+ *
+ * @command DumpDebugSnapshot
+ * @text Dump Debug Snapshot
+ *
+ * @command ValidateRuntime
+ * @text Validate Runtime
+ *
  * @command DebugAction
  * @text Debug Action
  * @arg action
@@ -1050,7 +1124,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.9.0";
+    const VERSION = "4.12.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -1692,6 +1766,26 @@
             flags: {},
             battleBreaks: { awareEnemies: {}, fakeLogLines: [], corruptLogAmount: 0, corruptLogLines: 0 },
             audioCorruption: { enabled: false, remaining: 0, pitchDrift: 0, volumeFlutter: 0, dropoutChance: 0, wrongSeChance: 0, sePool: [] },
+            visualDistortion: {
+                enabled: false,
+                remaining: 0,
+                breathAmount: 0,
+                breathSpeed: 0.05,
+                rippleAmount: 0,
+                zoomWobble: 0,
+                rotationWobble: 0,
+                warpAmount: 0,
+                phase: 0
+            },
+            fakeCrash: {
+                enabled: false,
+                remaining: 0,
+                duration: 0,
+                message: "",
+                returnStage: 0,
+                hasMessaged: false
+            },
+            debugSnapshotHistory: [],
             triggerRules: [],
             triggerOnce: {},
             triggerCooldowns: {},
@@ -1789,6 +1883,9 @@
         if (!s.battleBreaks.awareEnemies || typeof s.battleBreaks.awareEnemies !== "object") s.battleBreaks.awareEnemies = {};
         if (!Array.isArray(s.battleBreaks.fakeLogLines)) s.battleBreaks.fakeLogLines = [];
         if (!s.audioCorruption || typeof s.audioCorruption !== "object") s.audioCorruption = defaultState().audioCorruption;
+        if (!s.visualDistortion || typeof s.visualDistortion !== "object") s.visualDistortion = def.visualDistortion;
+        if (!s.fakeCrash || typeof s.fakeCrash !== "object") s.fakeCrash = def.fakeCrash;
+        if (!Array.isArray(s.debugSnapshotHistory)) s.debugSnapshotHistory = [];
         if (!Array.isArray(s.sequenceQueue)) s.sequenceQueue = [];
         if (typeof s.sequencePaused !== "boolean") s.sequencePaused = false;
         if (!s.sequenceMemory || typeof s.sequenceMemory !== "object") s.sequenceMemory = { once: {}, cooldowns: {} };
@@ -2408,6 +2505,21 @@
             case "fakesystemmessage":
                 FWB.fakeSystemMessage(String(value || rule.text || "Runtime integrity warning."), String(rule.speaker || "SYSTEM"));
                 break;
+            case "visualdistortion":
+                FWB.setVisualDistortion(rule);
+                break;
+            case "clearvisualdistortion":
+                FWB.clearVisualDistortion();
+                break;
+            case "fakecrash":
+                FWB.fakeCrash(rule);
+                break;
+            case "realtimemessage":
+                FWB.realTimeMessage(String(rule.condition || "always"), String(value || rule.text || ""), String(rule.speaker || "SYSTEM"));
+                break;
+            case "debugsnapshot":
+                FWB.dumpDebugSnapshot();
+                break;
         }
         state().lastTriggerId = String(rule.id || "");
         FWB.emit("triggerFired", { trigger: rule });
@@ -2822,6 +2934,220 @@
         return opts;
     }
 
+
+    // -------------------------------------------------------------------------
+    // Phase 10-12: Visual distortion, meta events, real-time awareness, inspector
+    // -------------------------------------------------------------------------
+
+    function normalizeVisualDistortionOptions(options) {
+        options = options || {};
+        return {
+            enabled: true,
+            remaining: Math.max(1, Number(options.duration || options.frames || options.remaining || 300)),
+            breathAmount: clamp(Number(options.breathAmount !== undefined ? options.breathAmount : (options.breath !== undefined ? options.breath : 0.02)), 0, 0.15),
+            breathSpeed: clamp(Number(options.breathSpeed !== undefined ? options.breathSpeed : 0.05), 0.001, 1),
+            rippleAmount: clamp(Number(options.rippleAmount !== undefined ? options.rippleAmount : (options.ripple !== undefined ? options.ripple : 0.01)), 0, 0.15),
+            zoomWobble: clamp(Number(options.zoomWobble !== undefined ? options.zoomWobble : 0.01), 0, 0.15),
+            rotationWobble: clamp(Number(options.rotationWobble !== undefined ? options.rotationWobble : 0.002), 0, 0.1),
+            warpAmount: clamp(Number(options.warpAmount !== undefined ? options.warpAmount : (options.warp !== undefined ? options.warp : 0)), 0, 0.15),
+            phase: 0
+        };
+    }
+
+    FWB.setVisualDistortion = function(options) {
+        if (access().disableFlicker) return false;
+        const s = state();
+        s.visualDistortion = normalizeVisualDistortionOptions(options || {});
+        markSyncDirty();
+        FWB.emit("visualDistortionStarted", { visualDistortion: Object.assign({}, s.visualDistortion) });
+        return true;
+    };
+
+    FWB.clearVisualDistortion = function() {
+        const s = state();
+        s.visualDistortion = {
+            enabled: false,
+            remaining: 0,
+            breathAmount: 0,
+            breathSpeed: 0.05,
+            rippleAmount: 0,
+            zoomWobble: 0,
+            rotationWobble: 0,
+            warpAmount: 0,
+            phase: 0
+        };
+        markSyncDirty();
+        FWB.emit("visualDistortionCleared", {});
+    };
+
+    FWB.getVisualDistortion = function() {
+        return Object.assign({}, state().visualDistortion || {});
+    };
+
+    function updateVisualDistortion(scene) {
+        const s = state();
+        const v = s.visualDistortion || {};
+        if (!v.enabled) return;
+        v.phase = Number(v.phase || 0) + Number(v.breathSpeed || 0.05);
+        if (Number(v.remaining || 0) > 0) v.remaining -= 1;
+        if (Number(v.remaining || 0) <= 0) FWB.clearVisualDistortion();
+    }
+
+    function applyVisualDistortionToOverlay(overlay, baseScale, baseAlpha) {
+        const s = state();
+        const v = s.visualDistortion || {};
+        if (!v.enabled || access().disableFlicker) {
+            return { scale: baseScale, alpha: baseAlpha, rotation: 0 };
+        }
+        const phase = Number(v.phase || 0);
+        const breath = Math.sin(phase) * Number(v.breathAmount || 0);
+        const ripple = Math.sin(phase * 2.17) * Number(v.rippleAmount || 0);
+        const zoom = Math.sin(phase * 1.41) * Number(v.zoomWobble || 0);
+        const rotation = Math.sin(phase * 0.79) * Number(v.rotationWobble || 0);
+        const scale = baseScale + breath + ripple + zoom;
+        const alpha = clamp(baseAlpha + Math.abs(ripple) * 0.35, 0.55, 1.3);
+        return { scale: clamp(scale, 0.85, 1.25), alpha: alpha, rotation: rotation };
+    }
+
+    FWB.fakeCrash = function(options) {
+        options = options || {};
+        const s = state();
+        const duration = Math.max(30, Number(options.duration || options.frames || 180));
+        const message = tokenReplace(options.message || "Runtime breach detected.");
+        s.fakeCrash = {
+            enabled: true,
+            remaining: duration,
+            duration: duration,
+            message: message,
+            returnStage: clamp(Number(options.returnStage !== undefined ? options.returnStage : 2), 0, 4),
+            hasMessaged: false
+        };
+        FWB.lockInput(Math.min(duration, 240));
+        FWB.setUiCorruption(Math.max(uiCorruptionLevel(), 4), duration);
+        FWB.setVisualDistortion({ breathAmount: 0.045, rippleAmount: 0.035, zoomWobble: 0.035, rotationWobble: 0.006, duration: duration });
+        if (!access().reduceFlashing && root.$gameScreen && $gameScreen.startFlash) {
+            $gameScreen.startFlash([255, 255, 255, 180], 18);
+        }
+        FWB.emit("fakeCrashStarted", { duration: duration, message: message });
+        return true;
+    };
+
+    function updateFakeCrash(scene) {
+        const s = state();
+        const fc = s.fakeCrash || {};
+        if (!fc.enabled) return;
+        const elapsed = Math.max(0, Number(fc.duration || 0) - Number(fc.remaining || 0));
+        if (!fc.hasMessaged && elapsed >= 8) {
+            fc.hasMessaged = true;
+            FWB.fakeSystemMessage(fc.message || "Runtime breach detected.", "SYSTEM");
+        }
+        if (Number(fc.remaining || 0) > 0) fc.remaining -= 1;
+        if (Number(fc.remaining || 0) <= 0) {
+            const returnStage = clamp(Number(fc.returnStage || 0), 0, 4);
+            s.fakeCrash = { enabled: false, remaining: 0, duration: 0, message: "", returnStage: 0, hasMessaged: false };
+            FWB.unlockInput();
+            FWB.clearUiCorruption();
+            FWB.clearVisualDistortion();
+            if (returnStage > 0) FWB.setStage(returnStage, { fadeFrames: 30, count: false, glitchOnStage: true });
+            FWB.emit("fakeCrashEnded", { returnStage: returnStage });
+            markSyncDirty();
+        }
+    }
+
+    FWB.realTime = {
+        now: function() { return new Date(); },
+        hour: function() { return new Date().getHours(); },
+        minute: function() { return new Date().getMinutes(); },
+        day: function() { return new Date().getDay(); },
+        timeString: function() {
+            const d = new Date();
+            const h = String(d.getHours()).padStart(2, "0");
+            const m = String(d.getMinutes()).padStart(2, "0");
+            return `${h}:${m}`;
+        },
+        isLateNight: function() { const h = new Date().getHours(); return h >= 23 || h < 5; },
+        isMorning: function() { const h = new Date().getHours(); return h >= 5 && h < 12; },
+        isAfternoon: function() { const h = new Date().getHours(); return h >= 12 && h < 18; },
+        isEvening: function() { const h = new Date().getHours(); return h >= 18 && h < 23; }
+    };
+
+    function realTimeConditionMatches(condition) {
+        condition = String(condition || "always").toLowerCase();
+        if (condition === "latenight" || condition === "late_night") return FWB.realTime.isLateNight();
+        if (condition === "morning") return FWB.realTime.isMorning();
+        if (condition === "afternoon") return FWB.realTime.isAfternoon();
+        if (condition === "evening") return FWB.realTime.isEvening();
+        return true;
+    }
+
+    FWB.realTimeMessage = function(condition, message, speaker) {
+        if (!realTimeConditionMatches(condition)) return false;
+        return FWB.fakeSystemMessage(message || "The time is wrong.", speaker || "SYSTEM");
+    };
+
+    FWB.debugSnapshot = function() {
+        const s = state();
+        return {
+            version: VERSION,
+            scene: currentSceneName(),
+            stage: s.stage,
+            breachMeter: s.breachMeter,
+            breachLocked: !!s.breachLocked,
+            presence: s.presence,
+            presenceTier: s.presenceTier || presenceTierName(s.presence),
+            narrativeState: s.narrativeState,
+            inputLockFrames: s.inputLockFrames || 0,
+            sequence: s.sequence ? { name: s.sequence.name, frame: s.sequence.frame, index: s.sequence.index, paused: !!s.sequencePaused } : null,
+            sequenceQueueLength: (s.sequenceQueue || []).length,
+            triggerCount: (s.triggerRules || []).length,
+            lastTriggerId: s.lastTriggerId || "",
+            uiCorruptionLevel: s.uiCorruptionLevel || 0,
+            controlDistortion: Object.assign({}, s.controlDistortion || {}),
+            audioCorruption: Object.assign({}, s.audioCorruption || {}),
+            visualDistortion: Object.assign({}, s.visualDistortion || {}),
+            fakeCrash: Object.assign({}, s.fakeCrash || {}),
+            battleBreaks: {
+                fakeLogLines: (s.battleBreaks && s.battleBreaks.fakeLogLines || []).slice(-5),
+                corruptLogAmount: s.battleBreaks && s.battleBreaks.corruptLogAmount || 0,
+                corruptLogLines: s.battleBreaks && s.battleBreaks.corruptLogLines || 0
+            },
+            trackers: Object.assign({}, s.trackers || {}),
+            flags: Object.assign({}, s.flags || {})
+        };
+    };
+
+    FWB.dumpDebugSnapshot = function() {
+        const snapshot = FWB.debugSnapshot();
+        const s = state();
+        if (!Array.isArray(s.debugSnapshotHistory)) s.debugSnapshotHistory = [];
+        s.debugSnapshotHistory.push(snapshot);
+        if (s.debugSnapshotHistory.length > 10) s.debugSnapshotHistory.shift();
+        console.log(`[${PLUGIN_NAME}] debug snapshot`, snapshot);
+        return snapshot;
+    };
+
+    FWB.getDebugSnapshotHistory = function() {
+        return (state().debugSnapshotHistory || []).slice();
+    };
+
+    FWB.validateRuntime = function() {
+        const errors = [];
+        const warnings = [];
+        const s = state();
+        if (!root.ImageManager) warnings.push("ImageManager is not available yet.");
+        for (let stage = 1; stage <= 4; stage++) {
+            if (!profile(stage).image) warnings.push(`Stage ${stage} has no image configured.`);
+        }
+        if (!Array.isArray(s.cracks)) errors.push("cracks is not an array.");
+        if (!s.accessibility || typeof s.accessibility !== "object") errors.push("accessibility settings missing.");
+        if (s.sequence) {
+            const validation = FWB.validateSequence(s.sequence.steps || []);
+            if (!validation.valid) warnings.push(`Active sequence has ${validation.errors.length} validation error(s).`);
+        }
+        if (!Array.isArray(s.triggerRules)) errors.push("triggerRules is not an array.");
+        return { valid: errors.length === 0, errors: errors, warnings: warnings, snapshot: FWB.debugSnapshot() };
+    };
+
     // -------------------------------------------------------------------------
     // Glitch text and messages
     // -------------------------------------------------------------------------
@@ -2899,6 +3225,8 @@
             .replace(/\{presence\}/gi, String(Math.round(s.presence || 0)))
             .replace(/\{presenceTier\}/gi, String(s.presenceTier || presenceTierName(s.presence)))
             .replace(/\{narrative\}/gi, String(s.narrativeState || "neutral"))
+            .replace(/\{hour\}/gi, String(FWB.realTime ? FWB.realTime.hour() : ""))
+            .replace(/\{time\}/gi, String(FWB.realTime ? FWB.realTime.timeString() : ""))
             .replace(/\{memory:([^}]+)\}/gi, function(_, key) { return String(FWB.memory.get(String(key).trim(), "")); })
             .replace(/\{flag:([^}]+)\}/gi, function(_, key) { return String(!!(s.flags && s.flags[String(key).trim()])); });
     }
@@ -2945,7 +3273,10 @@
         "stage", "setstage", "escalate", "reduce", "clear", "pulse", "flash", "glitch", "speaker", "message",
         "breach", "commonevent", "lockinput", "unlockinput", "presence", "narrative", "setnarrativestate",
         "memory", "memoryadd", "clearmemory", "flag", "clearflag", "fakedamage", "fakeheal", "battlelog", "corruptbattlelog",
-        "audiocorruption", "clearaudiocorruption", "wait", "emit", "sequence", "runsequence", "stopsequence"
+        "audiocorruption", "clearaudiocorruption", "wait", "emit", "sequence", "runsequence", "stopsequence",
+        "trigger", "registertrigger", "controldistortion", "clearcontroldistortion", "uicorruption", "clearuicorruption",
+        "fakesystemmessage", "fakesavefailure", "visualdistortion", "clearvisualdistortion", "fakecrash",
+        "realtimemessage", "debugsnapshot", "validateruntime"
     ];
 
     const SESSION_SEQUENCE_ONCE = {};
@@ -3305,6 +3636,24 @@
             case "fakesavefailure":
                 FWB.fakeSaveFailure(String(step.text || step.value || ""));
                 break;
+            case "visualdistortion":
+                FWB.setVisualDistortion(step);
+                break;
+            case "clearvisualdistortion":
+                FWB.clearVisualDistortion();
+                break;
+            case "fakecrash":
+                FWB.fakeCrash(step);
+                break;
+            case "realtimemessage":
+                FWB.realTimeMessage(String(step.condition || "always"), String(step.text || step.message || ""), String(step.speaker || "SYSTEM"));
+                break;
+            case "debugsnapshot":
+                FWB.dumpDebugSnapshot();
+                break;
+            case "validateruntime":
+                console.log(`[${PLUGIN_NAME}] runtime validation`, FWB.validateRuntime());
+                break;
             case "stopsequence":
                 FWB.stopSequence(!!step.clearQueue);
                 break;
@@ -3499,7 +3848,7 @@
         overlay._fwbDebugText.visible = true;
         overlay._fwbDebugText.x = 8;
         overlay._fwbDebugText.y = 8;
-        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}${s.sequencePaused ? " PAUSED" : ""}  Queue: ${(s.sequenceQueue || []).length}\nTriggers: ${(s.triggerRules || []).length} Last: ${s.lastTriggerId || "none"}\nUI: ${s.uiCorruptionLevel || 0}  Control: ${(s.controlDistortion && s.controlDistortion.enabled) ? s.controlDistortion.remaining : 0}`;
+        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}${s.sequencePaused ? " PAUSED" : ""}  Queue: ${(s.sequenceQueue || []).length}\nTriggers: ${(s.triggerRules || []).length} Last: ${s.lastTriggerId || "none"}\nUI: ${s.uiCorruptionLevel || 0}  Control: ${(s.controlDistortion && s.controlDistortion.enabled) ? s.controlDistortion.remaining : 0}\nAudio: ${s.audioCorruption && s.audioCorruption.enabled ? s.audioCorruption.remaining : 0}  BattleLog: ${s.battleBreaks ? s.battleBreaks.corruptLogLines : 0}\nVisual: ${s.visualDistortion && s.visualDistortion.enabled ? s.visualDistortion.remaining : 0}  FakeCrash: ${s.fakeCrash && s.fakeCrash.enabled ? s.fakeCrash.remaining : 0}  Snapshots: ${(s.debugSnapshotHistory || []).length}`;
     }
 
     function updateOverlay(scene) {
@@ -3546,11 +3895,13 @@
             shakeX = randomRange(-power, power);
             shakeY = randomRange(-power, power);
         }
+        const distortion = applyVisualDistortionToOverlay(overlay, pulseScale, clamp(pulseAlpha, 0.6, 1.25));
         overlay.x = shakeX;
         overlay.y = shakeY;
-        overlay.scale.x = pulseScale;
-        overlay.scale.y = pulseScale;
-        overlay.alpha = clamp(pulseAlpha, 0.6, 1.25);
+        overlay.scale.x = distortion.scale;
+        overlay.scale.y = distortion.scale;
+        overlay.rotation = distortion.rotation;
+        overlay.alpha = distortion.alpha;
 
         updateStaticAndScanlines(overlay);
         updateDebugOverlay(overlay);
@@ -3717,6 +4068,8 @@
         updateInputLock();
         updateUiCorruption(scene);
         updateAudioCorruption(scene);
+        updateVisualDistortion(scene);
+        updateFakeCrash(scene);
         updateRandomSubtle(scene);
         updateIdleTracking(scene);
         syncVariablesAndSwitches();
@@ -3750,6 +4103,19 @@
         if (flag !== null) FWB.setFlag(String(flag), true);
         const audioCorruption = noteValue(note, ["FWBAudioCorruption", "FourthWallAudioCorruption"]);
         if (audioCorruption !== null) FWB.setAudioCorruption(parseKeyValueOptions(audioCorruption));
+
+        const visualDistortion = noteValue(note, ["FWBVisualDistortion", "FourthWallVisualDistortion"]);
+        if (visualDistortion !== null) FWB.setVisualDistortion(parseKeyValueOptions(visualDistortion));
+
+        const fakeCrash = noteValue(note, ["FWBFakeCrash", "FourthWallFakeCrash"]);
+        if (fakeCrash !== null) {
+            const opts = parseKeyValueOptions(fakeCrash);
+            if (Object.keys(opts).length === 0 || (!opts.message && String(fakeCrash).indexOf("=") < 0)) opts.message = String(fakeCrash || "Runtime breach detected.");
+            FWB.fakeCrash(opts);
+        }
+
+        const lateNightMsg = noteValue(note, ["FWBRealTimeLateNightMessage", "FourthWallRealTimeLateNightMessage"]);
+        if (lateNightMsg !== null) FWB.realTimeMessage("lateNight", String(lateNightMsg), "SYSTEM");
 
         const uiCorruption = noteValue(note, ["FWBSetUiCorruption", "FWBUiCorruption", "FourthWallUiCorruption"]);
         if (uiCorruption !== null) FWB.setUiCorruption(Number(uiCorruption), 0);
@@ -4472,6 +4838,37 @@
 
     PluginManager.registerCommand(PLUGIN_NAME, "ClearAudioCorruption", () => FWB.clearAudioCorruption());
 
+    PluginManager.registerCommand(PLUGIN_NAME, "SetVisualDistortion", args => {
+        FWB.setVisualDistortion({
+            breathAmount: argNumber(args, "breathAmount", 0.02),
+            breathSpeed: argNumber(args, "breathSpeed", 0.05),
+            rippleAmount: argNumber(args, "rippleAmount", 0.01),
+            zoomWobble: argNumber(args, "zoomWobble", 0.01),
+            rotationWobble: argNumber(args, "rotationWobble", 0.002),
+            duration: argNumber(args, "duration", 300)
+        });
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearVisualDistortion", () => FWB.clearVisualDistortion());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "FakeCrash", args => {
+        FWB.fakeCrash({
+            message: argString(args, "message", "Runtime breach detected."),
+            duration: argNumber(args, "duration", 180),
+            returnStage: argNumber(args, "returnStage", 2)
+        });
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "RealTimeMessage", args => {
+        FWB.realTimeMessage(argString(args, "condition", "lateNight"), argString(args, "message", "It is late. You should stop."), argString(args, "speaker", "SYSTEM"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "DumpDebugSnapshot", () => FWB.dumpDebugSnapshot());
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ValidateRuntime", () => {
+        console.log(`[${PLUGIN_NAME}] runtime validation`, FWB.validateRuntime());
+    });
+
     PluginManager.registerCommand(PLUGIN_NAME, "DebugAction", args => {
         const action = argString(args, "action", "printState");
         if (action === "printState") console.log(`[${PLUGIN_NAME}] state`, JSON.parse(JSON.stringify(state())));
@@ -4497,6 +4894,8 @@
     FWB.triggerCount = function() { return (state().triggerRules || []).length; };
     FWB.activeTriggers = function() { return (state().triggerRules || []).slice(); };
     FWB.uiCorruptionLevel = function() { return uiCorruptionLevel(); };
+    FWB.visualDistortion = function() { return FWB.getVisualDistortion(); };
+    FWB.isFakeCrashRunning = function() { return !!(state().fakeCrash && state().fakeCrash.enabled); };
 
     FWB.version = VERSION;
     FWB.presenceTierName = presenceTierName;
