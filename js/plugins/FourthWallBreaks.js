@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.1.0 Feature-packed staged 4th-wall break engine with Phase 1 event bus, condition engine, presence system, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
+ * @plugindesc v4.2.0 Feature-packed staged 4th-wall break engine with fully wired Phase 2 presence tiers, decay, bindings, event bus, condition engine, staged cracks, breach meter, tracking, battle hooks, note tags, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -34,6 +34,10 @@
  *   FourthWallBreaks.lockBreach()
  *   FourthWallBreaks.unlockBreach()
  *   FourthWallBreaks.registerSequence("My Sequence", "[...]")
+ *   FourthWallBreaks.setPresence(50)
+ *   FourthWallBreaks.addPresence(10)
+ *   FourthWallBreaks.getPresenceTier()
+ *   FourthWallBreaks.setPresenceDecay(true, 1, 900, 0)
  *   FourthWallBreaks.glitchNextMessage(0.25, 1)
  *
  * Built-in sequence names:
@@ -53,6 +57,8 @@
  *   <FWBSequence: Reality Fracture>
  *   <FWBBreach: 10>
  *   <FWBGlitch: 0.25>
+ *   <FWBPresence: 50>
+ *   <FWBAddPresence: 10>
  *   <FWBCommonEvent: 12>
  *   <FWBForbiddenRoom>
  *   <FWBMapEnterStage: 2>
@@ -75,11 +81,11 @@
  *   <FWBRegion13CommonEvent: 5>
  *
  * Message tokens supported in Play 4th Wall Break and sequence message steps:
- *   {player} {saves} {loads} {deaths} {menus} {stage} {breach}
+ *   {player} {saves} {loads} {deaths} {menus} {stage} {breach} {presence} {presenceTier} {narrative}
  *
  * Custom sequence step actions:
  *   stage, escalate, reduce, clear, pulse, flash, glitch, speaker, message,
- *   breach, commonEvent, lockInput, unlockInput
+ *   breach, presence, commonEvent, lockInput, unlockInput, narrative, memory
  *
  * Safe save/load illusions only. This plugin does not alter real save files except
  * for normal RPG Maker saved game data containing its own state.
@@ -187,6 +193,101 @@
  * @param TotalBreaksVariableId
  * @text Total Breaks Variable
  * @type variable
+ * @default 0
+ *
+ * @param PresenceVariableId
+ * @text Presence Meter Variable
+ * @type variable
+ * @default 0
+ *
+ * @param PresenceTierVariableId
+ * @text Presence Tier Variable
+ * @type variable
+ * @default 0
+ * @desc 0 Dormant, 1 Aware, 2 Interactive, 3 Hostile.
+ *
+ * @param BindPresenceToStage
+ * @text Bind Presence To Stage
+ * @type boolean
+ * @default false
+ *
+ * @param PresenceStageMode
+ * @text Presence Stage Binding Mode
+ * @type select
+ * @option minimum
+ * @option exact
+ * @option off
+ * @default minimum
+ *
+ * @param BindPresenceToBreach
+ * @text Bind Presence To Breach
+ * @type boolean
+ * @default false
+ *
+ * @param PresenceToBreachMultiplier
+ * @text Presence To Breach Multiplier
+ * @type number
+ * @decimals 2
+ * @default 1
+ *
+ * @param PresenceStage1
+ * @text Presence Stage 1 Threshold
+ * @type number
+ * @default 25
+ *
+ * @param PresenceStage2
+ * @text Presence Stage 2 Threshold
+ * @type number
+ * @default 50
+ *
+ * @param PresenceStage3
+ * @text Presence Stage 3 Threshold
+ * @type number
+ * @default 75
+ *
+ * @param PresenceStage4
+ * @text Presence Stage 4 Threshold
+ * @type number
+ * @default 95
+ *
+ * @param PresenceDormantCommonEvent
+ * @text Presence Dormant Common Event
+ * @type common_event
+ * @default 0
+ *
+ * @param PresenceAwareCommonEvent
+ * @text Presence Aware Common Event
+ * @type common_event
+ * @default 0
+ *
+ * @param PresenceInteractiveCommonEvent
+ * @text Presence Interactive Common Event
+ * @type common_event
+ * @default 0
+ *
+ * @param PresenceHostileCommonEvent
+ * @text Presence Hostile Common Event
+ * @type common_event
+ * @default 0
+ *
+ * @param PresenceDecayEnabled
+ * @text Presence Decay Enabled
+ * @type boolean
+ * @default false
+ *
+ * @param PresenceDecayFrames
+ * @text Presence Decay Frames
+ * @type number
+ * @default 900
+ *
+ * @param PresenceDecayAmount
+ * @text Presence Decay Amount
+ * @type number
+ * @default 1
+ *
+ * @param PresenceDecayFloor
+ * @text Presence Decay Floor
+ * @type number
  * @default 0
  *
  * @param ActiveSwitchId
@@ -520,6 +621,11 @@
  * @min 0
  * @max 100
  * @default 0
+ * @arg addPresence
+ * @type number
+ * @min 0
+ * @max 100
+ * @default 0
  * @arg oneShot
  * @type boolean
  * @default false
@@ -542,6 +648,21 @@
  *
  * @command ClearPresence
  * @text Clear Presence
+ *
+ * @command SetPresenceDecay
+ * @text Set Presence Decay
+ * @arg enabled
+ * @type boolean
+ * @default true
+ * @arg amount
+ * @type number
+ * @default 1
+ * @arg frames
+ * @type number
+ * @default 900
+ * @arg floor
+ * @type number
+ * @default 0
  *
  * @command SetNarrativeState
  * @text Set Narrative State
@@ -598,7 +719,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.1.0";
+    const VERSION = "4.2.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -781,6 +902,7 @@
             randomFlip: true,
             chromatic: false,
             chromaticOffset: 2,
+            presenceGain: 1,
             scanlines: 0,
             staticNoise: 0,
             inputLock: 0,
@@ -810,6 +932,7 @@
             randomFlip: true,
             chromatic: false,
             chromaticOffset: 2,
+            presenceGain: 2,
             scanlines: 0,
             staticNoise: 0.01,
             inputLock: 0,
@@ -839,6 +962,7 @@
             randomFlip: true,
             chromatic: true,
             chromaticOffset: 2,
+            presenceGain: 4,
             scanlines: 0.08,
             staticNoise: 0.025,
             inputLock: 0,
@@ -868,6 +992,7 @@
             randomFlip: false,
             chromatic: true,
             chromaticOffset: 2,
+            presenceGain: 8,
             scanlines: 0.16,
             staticNoise: 0.045,
             inputLock: 10,
@@ -903,6 +1028,28 @@
         stageVariableId: pNumber("StageVariableId", 0),
         breachVariableId: pNumber("BreachVariableId", 0),
         totalBreaksVariableId: pNumber("TotalBreaksVariableId", 0),
+        presenceVariableId: pNumber("PresenceVariableId", 0),
+        presenceTierVariableId: pNumber("PresenceTierVariableId", 0),
+        bindPresenceToStage: pBool("BindPresenceToStage", false),
+        presenceStageMode: pString("PresenceStageMode", "minimum").toLowerCase(),
+        bindPresenceToBreach: pBool("BindPresenceToBreach", false),
+        presenceToBreachMultiplier: pNumber("PresenceToBreachMultiplier", 1),
+        presenceThresholds: {
+            1: pNumber("PresenceStage1", 25),
+            2: pNumber("PresenceStage2", 50),
+            3: pNumber("PresenceStage3", 75),
+            4: pNumber("PresenceStage4", 95)
+        },
+        presenceCommonEvents: {
+            dormant: pNumber("PresenceDormantCommonEvent", 0),
+            aware: pNumber("PresenceAwareCommonEvent", 0),
+            interactive: pNumber("PresenceInteractiveCommonEvent", 0),
+            hostile: pNumber("PresenceHostileCommonEvent", 0)
+        },
+        presenceDecayEnabled: pBool("PresenceDecayEnabled", false),
+        presenceDecayFrames: pNumber("PresenceDecayFrames", 900),
+        presenceDecayAmount: pNumber("PresenceDecayAmount", 1),
+        presenceDecayFloor: pNumber("PresenceDecayFloor", 0),
         activeSwitchId: pNumber("ActiveSwitchId", 0),
         fullBreachSwitchId: pNumber("FullBreachSwitchId", 0),
         commonEvents: {
@@ -1102,6 +1249,68 @@
     };
 
     // -------------------------------------------------------------------------
+    // Presence helpers
+    // -------------------------------------------------------------------------
+
+    function presenceTierLevel(value) {
+        value = Number(value || 0);
+        if (value >= Settings.presenceThresholds[3]) return 3;
+        if (value >= Settings.presenceThresholds[2]) return 2;
+        if (value >= Settings.presenceThresholds[1]) return 1;
+        return 0;
+    }
+
+    function presenceTierName(value) {
+        const level = presenceTierLevel(value);
+        if (level >= 3) return "hostile";
+        if (level >= 2) return "interactive";
+        if (level >= 1) return "aware";
+        return "dormant";
+    }
+
+    function stageFromPresence(value) {
+        value = Number(value || 0);
+        if (value >= Settings.presenceThresholds[4]) return 4;
+        if (value >= Settings.presenceThresholds[3]) return 3;
+        if (value >= Settings.presenceThresholds[2]) return 2;
+        if (value >= Settings.presenceThresholds[1]) return 1;
+        return 0;
+    }
+
+    function applyPresenceBindings(previousPresence, options) {
+        const s = state();
+        options = options || {};
+        if (options.suppressPresenceBindings) return;
+        if (Settings.bindPresenceToBreach) {
+            const breachValue = clamp(Number(s.presence || 0) * Number(Settings.presenceToBreachMultiplier || 1), 0, 100);
+            FWB.setBreach(breachValue, Object.assign({ count: false, source: "presence", force: options.forceBreach }, options));
+        }
+        if (Settings.bindPresenceToStage && Settings.presenceStageMode !== "off") {
+            const targetStage = visibleStage(stageFromPresence(s.presence));
+            if (Settings.presenceStageMode === "exact") {
+                FWB.setStage(targetStage, { fadeFrames: options.fadeFrames || 35, count: false, source: "presence", suppressPresenceGain: true });
+            } else if (targetStage > Number(s.stage || 0)) {
+                FWB.setStage(targetStage, { fadeFrames: options.fadeFrames || 35, count: false, source: "presence", suppressPresenceGain: true });
+            }
+        }
+    }
+
+    function updatePresenceTier(previousPresence, options) {
+        const s = state();
+        const previousTier = String(s.presenceTier || presenceTierName(previousPresence));
+        const nextTier = presenceTierName(s.presence);
+        s.presenceTier = nextTier;
+        if (previousTier !== nextTier) {
+            safeReserveCommonEvent(Settings.presenceCommonEvents[nextTier]);
+            FWB.emit("presenceTierChanged", { previousTier: previousTier, presenceTier: nextTier, presence: s.presence, options: options || {} });
+        }
+    }
+
+    function presenceIntensity(multiplier) {
+        return clamp((Number(state().presence || 0) / 100) * Number(multiplier || 1), 0, 1);
+    }
+
+    // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
 
@@ -1118,6 +1327,12 @@
             nextCrackId: 1,
             breachMeter: 0,
             presence: 0,
+            presenceTier: "dormant",
+            presenceDecayCounter: 0,
+            presenceDecayEnabled: Settings.presenceDecayEnabled,
+            presenceDecayFrames: Settings.presenceDecayFrames,
+            presenceDecayAmount: Settings.presenceDecayAmount,
+            presenceDecayFloor: Settings.presenceDecayFloor,
             narrativeState: "neutral",
             memory: {},
             flags: {},
@@ -1178,6 +1393,12 @@
         if (!s.memory || typeof s.memory !== "object") s.memory = {};
         if (!s.flags || typeof s.flags !== "object") s.flags = {};
         if (!Number.isFinite(Number(s.presence))) s.presence = 0;
+        if (!s.presenceTier) s.presenceTier = presenceTierName(s.presence);
+        if (!Number.isFinite(Number(s.presenceDecayCounter))) s.presenceDecayCounter = 0;
+        if (s.presenceDecayEnabled === undefined) s.presenceDecayEnabled = Settings.presenceDecayEnabled;
+        if (!Number.isFinite(Number(s.presenceDecayFrames))) s.presenceDecayFrames = Settings.presenceDecayFrames;
+        if (!Number.isFinite(Number(s.presenceDecayAmount))) s.presenceDecayAmount = Settings.presenceDecayAmount;
+        if (!Number.isFinite(Number(s.presenceDecayFloor))) s.presenceDecayFloor = Settings.presenceDecayFloor;
         if (!s.narrativeState) s.narrativeState = "neutral";
         if (!Number.isFinite(Number(s.nextCrackId))) s.nextCrackId = 1;
         return s;
@@ -1224,6 +1445,8 @@
             if (Settings.stageVariableId > 0) $gameVariables.setValue(Settings.stageVariableId, s.stage);
             if (Settings.breachVariableId > 0) $gameVariables.setValue(Settings.breachVariableId, Math.round(s.breachMeter));
             if (Settings.totalBreaksVariableId > 0) $gameVariables.setValue(Settings.totalBreaksVariableId, s.totalBreaks);
+            if (Settings.presenceVariableId > 0) $gameVariables.setValue(Settings.presenceVariableId, Math.round(s.presence || 0));
+            if (Settings.presenceTierVariableId > 0) $gameVariables.setValue(Settings.presenceTierVariableId, presenceTierLevel(s.presence));
         }
         if (root.$gameSwitches) {
             if (Settings.activeSwitchId > 0) $gameSwitches.setValue(Settings.activeSwitchId, s.stage > 0);
@@ -1388,6 +1611,10 @@
         }
         updateStackedCracks(stage, options.fadeFrames, options);
         fireStageEffects(stage, previous, options);
+        if (stage > previous && !options.suppressPresenceGain && options.source !== "presence") {
+            const gain = Number(profile(stage).presenceGain || 0);
+            if (gain > 0) FWB.addPresence(gain, { source: "stage", suppressPresenceBindings: true });
+        }
         if (stage !== previous) FWB.emit("stageChanged", { previousStage: previous, stage: stage, options: options });
         return s.stage;
     };
@@ -1527,10 +1754,21 @@
 
     FWB.setPresence = function(value, options) {
         const s = state();
+        options = options || {};
         const previousPresence = Number(s.presence || 0);
         s.presence = clamp(Number(value || 0), 0, 100);
+        updatePresenceTier(previousPresence, options);
+        applyPresenceBindings(previousPresence, options);
         markSyncDirty();
-        if (previousPresence !== s.presence) FWB.emit("presenceChanged", { previousPresence: previousPresence, presence: s.presence, options: options || {} });
+        if (previousPresence !== s.presence) {
+            FWB.emit("presenceChanged", {
+                previousPresence: previousPresence,
+                presence: s.presence,
+                previousTier: presenceTierName(previousPresence),
+                presenceTier: s.presenceTier,
+                options: options
+            });
+        }
         return s.presence;
     };
 
@@ -1543,8 +1781,28 @@
         return Number(state().presence || 0);
     };
 
+    FWB.getPresenceTier = function(value) {
+        return presenceTierName(value !== undefined ? value : state().presence);
+    };
+
+    FWB.getPresenceTierLevel = function(value) {
+        return presenceTierLevel(value !== undefined ? value : state().presence);
+    };
+
     FWB.clearPresence = function() {
         return FWB.setPresence(0);
+    };
+
+    FWB.setPresenceDecay = function(enabled, amount, frames, floor) {
+        const s = state();
+        s.presenceDecayEnabled = !!enabled;
+        if (amount !== undefined) s.presenceDecayAmount = Math.max(0, Number(amount || 0));
+        if (frames !== undefined) s.presenceDecayFrames = Math.max(1, Number(frames || 1));
+        if (floor !== undefined) s.presenceDecayFloor = clamp(Number(floor || 0), 0, 100);
+        s.presenceDecayCounter = 0;
+        markSyncDirty();
+        FWB.emit("presenceDecayChanged", { enabled: s.presenceDecayEnabled, amount: s.presenceDecayAmount, frames: s.presenceDecayFrames, floor: s.presenceDecayFloor });
+        return { enabled: s.presenceDecayEnabled, amount: s.presenceDecayAmount, frames: s.presenceDecayFrames, floor: s.presenceDecayFloor };
     };
 
     FWB.setNarrativeState = function(value) {
@@ -1658,6 +1916,7 @@
             .replace(/\{stage\}/gi, String(s.stage || 0))
             .replace(/\{breach\}/gi, String(Math.round(s.breachMeter || 0)))
             .replace(/\{presence\}/gi, String(Math.round(s.presence || 0)))
+            .replace(/\{presenceTier\}/gi, String(s.presenceTier || presenceTierName(s.presence)))
             .replace(/\{narrative\}/gi, String(s.narrativeState || "neutral"));
     }
 
@@ -1675,6 +1934,7 @@
         if (type === "randomSubtle") severity = Math.min(severity, Settings.randomStageMax);
         FWB.setStage(severity, { fadeFrames: options.fadeFrames || undefined, glitchOnStage: true });
         if (Number(options.addBreach || 0) !== 0) FWB.addBreach(Number(options.addBreach || 0), { count: false });
+        if (Number(options.addPresence || 0) !== 0) FWB.addPresence(Number(options.addPresence || 0), { source: "breakMoment" });
 
         if (type === "stare" && root.$gameMap && Number(options.faceEventId || 0) > 0) {
             const ev = $gameMap.event(Number(options.faceEventId));
@@ -1983,7 +2243,7 @@
         overlay._fwbDebugText.visible = true;
         overlay._fwbDebugText.x = 8;
         overlay._fwbDebugText.y = 8;
-        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)}\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}`;
+        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}`;
     }
 
     function updateOverlay(scene) {
@@ -2120,16 +2380,47 @@
         if (root.$gameMap && $gameMap.isEventRunning && $gameMap.isEventRunning()) return;
         s.randomCooldown -= 1;
         if (s.randomCooldown > 0) return;
-        s.randomCooldown = randomInt(Settings.randomMinCooldownFrames, Settings.randomMaxCooldownFrames);
-        const presenceBoost = Math.floor(Number(s.presence || 0) / 35);
+
+        const tierLevel = presenceTierLevel(s.presence);
+        const minCooldown = Math.max(120, Settings.randomMinCooldownFrames - tierLevel * 180);
+        const maxCooldown = Math.max(minCooldown + 60, Settings.randomMaxCooldownFrames - tierLevel * 420);
+        s.randomCooldown = randomInt(minCooldown, maxCooldown);
+
+        const presenceBoost = Math.floor(Number(s.presence || 0) / 30);
         const stage = clamp(randomInt(1, Settings.randomStageMax) + presenceBoost, 1, 4);
+        const intensity = presenceIntensity(0.85);
         const roll = Math.random();
-        if (roll < 0.4) FWB.pulse(randomInt(25, 55), randomRange(0.15, 0.35));
-        else if (roll < 0.8) FWB.setStage(stage, { fadeFrames: randomInt(20, 45), count: true });
-        else FWB.flash(randomInt(6, 12), randomInt(50, 120));
+
+        if (tierLevel >= 3 && roll > 0.82) {
+            FWB.runSequence("System Failure");
+        } else if (tierLevel >= 2 && roll > 0.76) {
+            FWB.runSequence("Player Spotted");
+        } else if (roll < 0.34) {
+            FWB.pulse(randomInt(25, 55 + tierLevel * 10), randomRange(0.15, 0.35 + intensity * 0.35));
+        } else if (roll < 0.72) {
+            FWB.setStage(stage, { fadeFrames: randomInt(20, 45), count: true, source: "presenceRandom" });
+        } else if (roll < 0.88) {
+            FWB.glitchNextMessage(randomRange(0.08, 0.12 + intensity * 0.22), tierLevel >= 2 ? 2 : 1);
+        } else {
+            FWB.flash(randomInt(6, 12 + tierLevel * 4), randomInt(50, 120 + tierLevel * 20));
+        }
+    }
+
+    function updatePresenceDecay(scene) {
+        const s = state();
+        if (!s.presenceDecayEnabled) return;
+        const frames = Math.max(1, Number(s.presenceDecayFrames || Settings.presenceDecayFrames || 900));
+        s.presenceDecayCounter = Number(s.presenceDecayCounter || 0) + 1;
+        if (s.presenceDecayCounter < frames) return;
+        s.presenceDecayCounter = 0;
+        const floor = clamp(Number(s.presenceDecayFloor || 0), 0, 100);
+        if (Number(s.presence || 0) > floor) {
+            FWB.setPresence(Math.max(floor, Number(s.presence || 0) - Math.max(0, Number(s.presenceDecayAmount || 1))), { source: "presenceDecay", fadeFrames: 45 });
+        }
     }
 
     FWB.update = function(scene) {
+        updatePresenceDecay(scene);
         updateSequence();
         updateCrackFades();
         updatePulseAndShake();
@@ -2151,6 +2442,11 @@
 
         const breach = noteValue(note, ["FWBBreach", "FourthWallBreach"]);
         if (breach !== null) FWB.addBreach(Number(breach));
+
+        const setPresence = noteValue(note, ["FWBPresence", "FourthWallPresence"]);
+        if (setPresence !== null) FWB.setPresence(Number(setPresence), { source: sourceKey });
+        const addPresence = noteValue(note, ["FWBAddPresence", "FourthWallAddPresence"]);
+        if (addPresence !== null) FWB.addPresence(Number(addPresence), { source: sourceKey });
 
         const pulse = noteValue(note, ["FWBPulse", "FourthWallPulse"]);
         if (pulse !== null) {
@@ -2600,6 +2896,7 @@
             messageText: argString(args, "messageText", ""),
             faceEventId: argNumber(args, "faceEventId", 0),
             addBreach: argNumber(args, "addBreach", 0),
+            addPresence: argNumber(args, "addPresence", 0),
             oneShot: argBool(args, "oneShot", false)
         });
     });
@@ -2615,6 +2912,15 @@
 
     PluginManager.registerCommand(PLUGIN_NAME, "ClearPresence", () => {
         FWB.clearPresence();
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "SetPresenceDecay", args => {
+        FWB.setPresenceDecay(
+            argBool(args, "enabled", true),
+            argNumber(args, "amount", 1),
+            argNumber(args, "frames", 900),
+            argNumber(args, "floor", 0)
+        );
     });
 
     PluginManager.registerCommand(PLUGIN_NAME, "SetNarrativeState", args => {
@@ -2658,6 +2964,9 @@
     // -------------------------------------------------------------------------
 
     FWB.version = VERSION;
+    FWB.presenceTierName = presenceTierName;
+    FWB.presenceTierLevel = presenceTierLevel;
+    FWB.stageFromPresence = stageFromPresence;
     FWB.settings = Settings;
     FWB.profiles = Profiles;
     FWB.sequences = SEQUENCES;
