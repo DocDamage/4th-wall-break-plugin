@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v4.13.0 Release-hardened staged 4th-wall break engine with safe mode, config import/export, debug reporters, presets, packaging support, Phases 10-12 visual distortion, fake crash/meta events, real-time awareness, developer inspector tools, memory/narrative, battle/audio corruption, triggers, control/UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
+ * @plugindesc v5.0.0 Style Pack Matrix edition — staged 4th-wall break engine with mix-and-match style packs, safe mode, config import/export, debug reporters, presets, packaging support, Phases 10-12 visual distortion, fake crash/meta events, real-time awareness, developer inspector tools, memory/narrative, battle/audio corruption, triggers, control/UI corruption, presence tiers, event bus, condition engine, staged cracks, breach meter, debug, and accessibility.
  * @author DocDamage
  * @url https://github.com/DocDamage/4th-wall-break-plugin
  *
@@ -1099,6 +1099,60 @@
  * @type string
  * @default SYSTEM
  *
+ * @command SetStylePack
+ * @text Set Style Pack
+ * @arg channel
+ * @type select
+ * @option cracks
+ * @option overlays
+ * @option ui
+ * @option audio
+ * @option presence
+ * @option sequences
+ * @default cracks
+ * @arg packName
+ * @type string
+ * @default clean_glass
+ *
+ * @command ClearStylePack
+ * @text Clear Style Pack
+ * @arg channel
+ * @type select
+ * @option cracks
+ * @option overlays
+ * @option ui
+ * @option audio
+ * @option presence
+ * @option sequences
+ * @default cracks
+ *
+ * @command ApplyStyleRecipe
+ * @text Apply Style Recipe
+ * @arg recipeName
+ * @type string
+ * @default classic
+ *
+ * @command PreviewStyleRecipe
+ * @text Preview Style Recipe
+ * @arg recipeName
+ * @type string
+ * @default classic
+ * @arg duration
+ * @type number
+ * @default 600
+ *
+ * @command ListStylePacks
+ * @text List Style Packs
+ * @arg channel
+ * @type select
+ * @option cracks
+ * @option overlays
+ * @option ui
+ * @option audio
+ * @option presence
+ * @option sequences
+ * @default cracks
+ *
  * @command DumpDebugSnapshot
  * @text Dump Debug Snapshot
  *
@@ -1156,7 +1210,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.13.0";
+    const VERSION = "5.0.0";
     const params = PluginManager.parameters(PLUGIN_NAME) || {};
     const root = (typeof window !== "undefined") ? window : globalThis;
     const FWB = root.FourthWallBreaks = root.FourthWallBreaks || {};
@@ -1545,6 +1599,214 @@
 
 
     // endregion Settings and defaults
+    // region Style Pack Matrix System
+    // -------------------------------------------------------------------------
+    // Style Pack Matrix System
+    // -------------------------------------------------------------------------
+
+    const STYLE_CHANNELS = ["cracks", "overlays", "ui", "audio", "presence", "sequences"];
+    const _stylePackRegistry = {};
+    const _styleRecipeRegistry = {};
+    const _builtInPackNames = new Set();
+
+    function registerStylePack(channel, name, data) {
+        if (!STYLE_CHANNELS.includes(channel)) return false;
+        if (!name || typeof name !== "string") return false;
+        _stylePackRegistry[channel] = _stylePackRegistry[channel] || {};
+        _stylePackRegistry[channel][name] = data || {};
+        return true;
+    }
+
+    function unregisterStylePack(channel, name) {
+        if (!STYLE_CHANNELS.includes(channel) || !_stylePackRegistry[channel]) return false;
+        if (_builtInPackNames.has(`${channel}:${name}`)) return false;
+        delete _stylePackRegistry[channel][name];
+        return true;
+    }
+
+    function listStylePacks(channel) {
+        if (!STYLE_CHANNELS.includes(channel) || !_stylePackRegistry[channel]) return [];
+        return Object.keys(_stylePackRegistry[channel]);
+    }
+
+    function getStylePack(channel, name) {
+        if (!STYLE_CHANNELS.includes(channel) || !_stylePackRegistry[channel]) return undefined;
+        return _stylePackRegistry[channel][name];
+    }
+
+    function setStylePack(stateObj, channel, name, options) {
+        options = options || {};
+        if (!STYLE_CHANNELS.includes(channel)) {
+            if (Settings.debugMode) console.warn(`[${PLUGIN_NAME}] Unknown style channel: ${channel}`);
+            return false;
+        }
+        if (name && name !== "") {
+            const pack = getStylePack(channel, name);
+            if (!pack) {
+                if (Settings.debugMode) console.warn(`[${PLUGIN_NAME}] Unknown style pack: ${channel}/${name}`);
+                return false;
+            }
+        }
+        stateObj.stylePacks = stateObj.stylePacks || {};
+        stateObj.stylePacks[channel] = name || "";
+        if (!options.silent) FWB.emit("stylePackChanged", { channel, name, previous: stateObj.stylePacks[channel] });
+        markSyncDirty();
+        return true;
+    }
+
+    function getActiveStylePacks(stateObj) {
+        const out = {};
+        for (let i = 0; i < STYLE_CHANNELS.length; i++) {
+            const ch = STYLE_CHANNELS[i];
+            out[ch] = (stateObj.stylePacks && stateObj.stylePacks[ch]) || "";
+        }
+        return out;
+    }
+
+    function clearStylePack(stateObj, channel) {
+        return setStylePack(stateObj, channel, "", { silent: true });
+    }
+
+    function registerStyleRecipe(name, recipe) {
+        if (!name || typeof name !== "string" || !recipe || typeof recipe !== "object") return false;
+        _styleRecipeRegistry[name] = recipe;
+        return true;
+    }
+
+    function applyStyleRecipe(stateObj, name, options) {
+        options = options || {};
+        const recipe = _styleRecipeRegistry[name];
+        if (!recipe) {
+            if (Settings.debugMode) console.warn(`[${PLUGIN_NAME}] Unknown style recipe: ${name}`);
+            return false;
+        }
+        for (let i = 0; i < STYLE_CHANNELS.length; i++) {
+            const ch = STYLE_CHANNELS[i];
+            if (recipe[ch]) setStylePack(stateObj, ch, recipe[ch], { silent: true });
+        }
+        if (!options.silent) FWB.emit("styleRecipeApplied", { name, recipe });
+        markSyncDirty();
+        return true;
+    }
+
+    function previewStyleRecipe(stateObj, name, frames) {
+        frames = Math.max(1, Number(frames || 600));
+        const recipe = _styleRecipeRegistry[name];
+        if (!recipe) {
+            if (Settings.debugMode) console.warn(`[${PLUGIN_NAME}] Unknown style recipe for preview: ${name}`);
+            return false;
+        }
+        const previous = {};
+        for (let i = 0; i < STYLE_CHANNELS.length; i++) {
+            const ch = STYLE_CHANNELS[i];
+            previous[ch] = (stateObj.stylePacks && stateObj.stylePacks[ch]) || "";
+        }
+        stateObj.stylePreview = {
+            active: true,
+            remaining: frames,
+            previous: previous,
+            recipeName: name
+        };
+        for (let i = 0; i < STYLE_CHANNELS.length; i++) {
+            const ch = STYLE_CHANNELS[i];
+            if (recipe[ch]) setStylePack(stateObj, ch, recipe[ch], { silent: true });
+        }
+        FWB.emit("stylePreviewStarted", { name, frames });
+        markSyncDirty();
+        return true;
+    }
+
+    function listStyleRecipes() {
+        return Object.keys(_styleRecipeRegistry);
+    }
+
+    function getStyleRecipe(name) {
+        return _styleRecipeRegistry[name];
+    }
+
+    function updateStylePreview(stateObj) {
+        const sp = stateObj.stylePreview;
+        if (!sp || !sp.active) return;
+        sp.remaining -= 1;
+        if (sp.remaining <= 0) {
+            sp.active = false;
+            const prev = sp.previous || {};
+            for (let i = 0; i < STYLE_CHANNELS.length; i++) {
+                const ch = STYLE_CHANNELS[i];
+                setStylePack(stateObj, ch, prev[ch] || "", { silent: true });
+            }
+            FWB.emit("stylePreviewEnded", { recipeName: sp.recipeName });
+            stateObj.stylePreview = null;
+            markSyncDirty();
+        }
+    }
+
+    function getStyleValue(stateObj, channel, key, fallback) {
+        const activeName = (stateObj.stylePacks && stateObj.stylePacks[channel]) || "";
+        if (!activeName) return fallback;
+        const pack = getStylePack(channel, activeName);
+        if (!pack || pack[key] === undefined) return fallback;
+        return pack[key];
+    }
+
+    function registerBuiltInStylePacks() {
+        const packs = [
+            // cracks
+            ["cracks", "clean_glass", { opacityMod: 1.0, blendMode: "normal", flicker: 0.02, chromatic: false, scanlines: 0, staticNoise: 0 }],
+            ["cracks", "deep_fracture", { opacityMod: 1.1, blendMode: "normal", flicker: 0.04, chromatic: false, scanlines: 0.02, staticNoise: 0.01 }],
+            ["cracks", "shattered_lens", { opacityMod: 1.15, blendMode: "screen", flicker: 0.06, chromatic: true, chromaticOffset: 3, scanlines: 0.03, staticNoise: 0.02 }],
+            ["cracks", "void_tear", { opacityMod: 1.2, blendMode: "multiply", flicker: 0.08, chromatic: true, chromaticOffset: 4, scanlines: 0.04, staticNoise: 0.03 }],
+            ["cracks", "digital_split", { opacityMod: 1.1, blendMode: "add", flicker: 0.05, chromatic: true, chromaticOffset: 2, scanlines: 0.05, staticNoise: 0.02 }],
+            // overlays
+            ["overlays", "none", { vignetteImage: "", staticImage: "", presenceMarkImage: "", blendMode: "normal", opacity: 0, pulseBehavior: "none" }],
+            ["overlays", "static_veil", { vignetteImage: "", staticImage: "FourthWall_07_StaticVeil", presenceMarkImage: "", blendMode: "normal", opacity: 0.15, pulseBehavior: "slow" }],
+            ["overlays", "edge_pressure", { vignetteImage: "FourthWall_08_EdgePressure", staticImage: "", presenceMarkImage: "", blendMode: "multiply", opacity: 0.2, pulseBehavior: "breath" }],
+            ["overlays", "presence_mark", { vignetteImage: "", staticImage: "", presenceMarkImage: "FourthWall_09_PresenceMark", blendMode: "screen", opacity: 0.25, pulseBehavior: "heartbeat" }],
+            ["overlays", "cosmic_noise", { vignetteImage: "", staticImage: "FourthWall_07_StaticVeil", presenceMarkImage: "FourthWall_09_PresenceMark", blendMode: "add", opacity: 0.18, pulseBehavior: "random" }],
+            ["overlays", "digital_split", { vignetteImage: "", staticImage: "FourthWall_10_DigitalSplit", presenceMarkImage: "", blendMode: "screen", opacity: 0.2, pulseBehavior: "glitch" }],
+            ["overlays", "cosmic_dust", { vignetteImage: "FourthWall_11_CosmicDust", staticImage: "", presenceMarkImage: "", blendMode: "add", opacity: 0.22, pulseBehavior: "slow" }],
+            ["overlays", "blood_vignette", { vignetteImage: "FourthWall_12_BloodVignette", staticImage: "", presenceMarkImage: "", blendMode: "multiply", opacity: 0.25, pulseBehavior: "heartbeat" }],
+            // ui
+            ["ui", "subtle_wrongness", { glitchSymbols: "", textCorruptionMod: 1.0, cursorInstability: 0, windowOffset: 0, fakeDisabledChance: 0 }],
+            ["ui", "haunted_save", { glitchSymbols: "█▓▒░", textCorruptionMod: 1.2, cursorInstability: 0.1, windowOffset: 2, fakeDisabledChance: 0.05 }],
+            ["ui", "terminal_failure", { glitchSymbols: "01X#", textCorruptionMod: 1.5, cursorInstability: 0.2, windowOffset: 3, fakeDisabledChance: 0.1 }],
+            ["ui", "malware_popup", { glitchSymbols: "!@$%", textCorruptionMod: 1.8, cursorInstability: 0.25, windowOffset: 4, fakeDisabledChance: 0.15 }],
+            ["ui", "dream_decay", { glitchSymbols: "~•·", textCorruptionMod: 1.3, cursorInstability: 0.15, windowOffset: 2, fakeDisabledChance: 0.08 }],
+            // audio
+            ["audio", "vhs_decay", { pitchDrift: 0.04, volumeFlutter: 0.1, dropoutChance: 0.02, wrongSeChance: 0, sePool: [] }],
+            ["audio", "signal_dropout", { pitchDrift: 0.02, volumeFlutter: 0.2, dropoutChance: 0.08, wrongSeChance: 0, sePool: [] }],
+            ["audio", "wrong_sfx", { pitchDrift: 0.03, volumeFlutter: 0.05, dropoutChance: 0.01, wrongSeChance: 0.15, sePool: ["Bell", "Buzzer", "Damage1"] }],
+            ["audio", "low_breathing", { pitchDrift: 0.01, volumeFlutter: 0.3, dropoutChance: 0.04, wrongSeChance: 0, sePool: [] }],
+            ["audio", "system_bleed", { pitchDrift: 0.06, volumeFlutter: 0.12, dropoutChance: 0.06, wrongSeChance: 0.1, sePool: ["Collapse", "Damage2"] }],
+            // presence
+            ["presence", "entity_watching", { stageBias: 0, eventWeights: { subtle: 0.6, direct: 0.3, hostile: 0.1 }, preferredSequences: ["Subtle Warning", "Player Spotted"], visualDistortionDefaults: { breathAmount: 0.01 }, uiCorruptionBias: 0, overlayRecommendation: "presence_mark" }],
+            ["presence", "void_pressure", { stageBias: 1, eventWeights: { subtle: 0.3, direct: 0.4, hostile: 0.3 }, preferredSequences: ["Reality Fracture", "System Failure"], visualDistortionDefaults: { breathAmount: 0.02, warpAmount: 0.01 }, uiCorruptionBias: 1, overlayRecommendation: "edge_pressure" }],
+            ["presence", "cosmic_attention", { stageBias: 0, eventWeights: { subtle: 0.5, direct: 0.4, hostile: 0.1 }, preferredSequences: ["Subtle Warning", "Boss Break"], visualDistortionDefaults: { rippleAmount: 0.01 }, uiCorruptionBias: 0, overlayRecommendation: "cosmic_noise" }],
+            ["presence", "hostile_system", { stageBias: 2, eventWeights: { subtle: 0.1, direct: 0.3, hostile: 0.6 }, preferredSequences: ["System Failure", "Full Breach"], visualDistortionDefaults: { breathAmount: 0.03, zoomWobble: 0.01 }, uiCorruptionBias: 2, overlayRecommendation: "static_veil" }],
+            ["presence", "silent_observer", { stageBias: 0, eventWeights: { subtle: 0.9, direct: 0.1, hostile: 0 }, preferredSequences: ["Subtle Warning"], visualDistortionDefaults: {}, uiCorruptionBias: 0, overlayRecommendation: "none" }],
+            // sequences
+            ["sequences", "classic", { subtleSequence: "Subtle Warning", hostileSequence: "Player Spotted", fakeCrashSequence: "System Failure" }],
+            ["sequences", "vhs", { subtleSequence: "Reality Fracture", hostileSequence: "System Failure", fakeCrashSequence: "System Failure" }],
+            ["sequences", "malware", { subtleSequence: "Player Spotted", hostileSequence: "Full Breach", fakeCrashSequence: "System Failure" }],
+            ["sequences", "void", { subtleSequence: "Boss Break", hostileSequence: "Full Breach", fakeCrashSequence: "System Failure" }],
+            ["sequences", "dream", { subtleSequence: "Subtle Warning", hostileSequence: "Boss Break", fakeCrashSequence: "System Failure" }]
+        ];
+        for (let i = 0; i < packs.length; i++) {
+            const [channel, name, data] = packs[i];
+            registerStylePack(channel, name, data);
+            _builtInPackNames.add(`${channel}:${name}`);
+        }
+        // Built-in recipes
+        registerStyleRecipe("classic", { cracks: "clean_glass", overlays: "none", ui: "subtle_wrongness", audio: "vhs_decay", presence: "entity_watching", sequences: "classic" });
+        registerStyleRecipe("digital_malware", { cracks: "digital_split", overlays: "static_veil", ui: "malware_popup", audio: "system_bleed", presence: "hostile_system", sequences: "malware" });
+        registerStyleRecipe("void_entity", { cracks: "void_tear", overlays: "edge_pressure", ui: "terminal_failure", audio: "low_breathing", presence: "void_pressure", sequences: "void" });
+        registerStyleRecipe("shattered_reality", { cracks: "shattered_lens", overlays: "cosmic_noise", ui: "dream_decay", audio: "signal_dropout", presence: "cosmic_attention", sequences: "dream" });
+        registerStyleRecipe("silent_horror", { cracks: "deep_fracture", overlays: "none", ui: "subtle_wrongness", audio: "vhs_decay", presence: "silent_observer", sequences: "classic" });
+    }
+
+    registerBuiltInStylePacks();
+
+    // endregion Style Pack Matrix System
     // region Phase 1 Core Architecture: Event Bus and Condition Engine
     // -------------------------------------------------------------------------
     // Phase 1 Core Architecture: Event Bus and Condition Engine
@@ -1827,6 +2089,8 @@
                 hasMessaged: false
             },
             debugSnapshotHistory: [],
+            stylePacks: { cracks: "", overlays: "", ui: "", audio: "", presence: "", sequences: "" },
+            stylePreview: null,
             triggerRules: [],
             triggerOnce: {},
             triggerCooldowns: {},
@@ -1928,6 +2192,9 @@
         if (!s.visualDistortion || typeof s.visualDistortion !== "object") s.visualDistortion = def.visualDistortion;
         if (!s.fakeCrash || typeof s.fakeCrash !== "object") s.fakeCrash = def.fakeCrash;
         if (!Array.isArray(s.debugSnapshotHistory)) s.debugSnapshotHistory = [];
+        if (!s.stylePacks || typeof s.stylePacks !== "object") s.stylePacks = { cracks: "", overlays: "", ui: "", audio: "", presence: "", sequences: "" };
+        STYLE_CHANNELS.forEach(ch => { if (s.stylePacks[ch] === undefined) s.stylePacks[ch] = ""; });
+        if (s.stylePreview === undefined) s.stylePreview = null;
         if (!Array.isArray(s.sequenceQueue)) s.sequenceQueue = [];
         if (typeof s.sequencePaused !== "boolean") s.sequencePaused = false;
         if (!s.sequenceMemory || typeof s.sequenceMemory !== "object") s.sequenceMemory = { once: {}, cooldowns: {} };
@@ -2039,7 +2306,12 @@
         const s = state();
         const p = profile(stage);
         const transform = makeTransform(stage, options && options.randomize);
-        const target = maxOpacity(Number((options && options.opacity) || p.opacity || 180));
+        const packOpacityMod = getStyleValue(s, "cracks", "opacityMod", 1.0);
+        const packBlendMode = getStyleValue(s, "cracks", "blendMode", "");
+        const packFlicker = getStyleValue(s, "cracks", "flicker", null);
+        const packChromatic = getStyleValue(s, "cracks", "chromatic", null);
+        const packChromaticOffset = getStyleValue(s, "cracks", "chromaticOffset", null);
+        const target = maxOpacity(Number((options && options.opacity) || p.opacity || 180) * packOpacityMod);
         return {
             id: s.nextCrackId++,
             stage: stage,
@@ -2049,15 +2321,16 @@
             fadeSpeed: Math.max(1, target / Math.max(1, Number(fadeFrames || p.fadeIn || 30))),
             removing: false,
             age: 0,
-            blendMode: p.blendMode || "normal",
+            blendMode: packBlendMode || p.blendMode || "normal",
             rotation: transform.rotation,
             offsetX: transform.offsetX,
             offsetY: transform.offsetY,
             scale: transform.scale,
             flipX: transform.flipX,
             flipY: transform.flipY,
-            chromatic: !!p.chromatic,
-            flicker: Number(p.flicker || 0)
+            chromatic: packChromatic !== null ? !!packChromatic : !!p.chromatic,
+            chromaticOffset: packChromaticOffset !== null ? Number(packChromaticOffset) : Number(p.chromaticOffset || 2),
+            flicker: packFlicker !== null ? Number(packFlicker) : Number(p.flicker || 0)
         };
     }
 
@@ -2734,7 +3007,9 @@
 
     FWB.setUiCorruption = function(level, duration) {
         const s = state();
-        s.uiCorruptionLevel = clamp(Number(level || 0), 0, Settings.maxUiCorruptionLevel);
+        const packBias = getStyleValue(s, "presence", "uiCorruptionBias", 0);
+        const resolvedLevel = level !== undefined ? level : packBias;
+        s.uiCorruptionLevel = clamp(Number(resolvedLevel || 0), 0, Settings.maxUiCorruptionLevel);
         s.uiCorruptionFrames = Math.max(0, Number(duration || 0));
         markSyncDirty();
         FWB.emit("uiCorruptionChanged", { level: s.uiCorruptionLevel, duration: s.uiCorruptionFrames });
@@ -2923,14 +3198,21 @@
         const s = state();
         if (!Settings.audioCorruptionEnabled || access().disableAudioDistortion) return false;
         options = options || {};
+        const packDefaults = getStyleValue(s, "audio", "pitchDrift") !== undefined ? {
+            pitchDrift: getStyleValue(s, "audio", "pitchDrift", 0),
+            volumeFlutter: getStyleValue(s, "audio", "volumeFlutter", 0),
+            dropoutChance: getStyleValue(s, "audio", "dropoutChance", 0),
+            wrongSeChance: getStyleValue(s, "audio", "wrongSeChance", 0),
+            sePool: getStyleValue(s, "audio", "sePool", [])
+        } : {};
         s.audioCorruption = {
             enabled: true,
             remaining: Math.max(1, Number(options.duration || options.frames || 300)),
-            pitchDrift: clamp(Number(options.pitchDrift || 0), 0, Settings.audioCorruptionMaxPitchDrift),
-            volumeFlutter: clamp(Number(options.volumeFlutter || 0), 0, Settings.audioCorruptionMaxVolumeFlutter),
-            dropoutChance: clamp(Number(options.dropoutChance || 0), 0, Settings.audioCorruptionMaxDropoutChance),
-            wrongSeChance: clamp(Number(options.wrongSeChance || 0), 0, 1),
-            sePool: Array.isArray(options.sePool) ? options.sePool.slice() : FWB_AUDIO_FALLBACK_SE.slice()
+            pitchDrift: clamp(Number(options.pitchDrift !== undefined ? options.pitchDrift : packDefaults.pitchDrift), 0, Settings.audioCorruptionMaxPitchDrift),
+            volumeFlutter: clamp(Number(options.volumeFlutter !== undefined ? options.volumeFlutter : packDefaults.volumeFlutter), 0, Settings.audioCorruptionMaxVolumeFlutter),
+            dropoutChance: clamp(Number(options.dropoutChance !== undefined ? options.dropoutChance : packDefaults.dropoutChance), 0, Settings.audioCorruptionMaxDropoutChance),
+            wrongSeChance: clamp(Number(options.wrongSeChance !== undefined ? options.wrongSeChance : packDefaults.wrongSeChance), 0, 1),
+            sePool: Array.isArray(options.sePool) ? options.sePool.slice() : (Array.isArray(packDefaults.sePool) && packDefaults.sePool.length ? packDefaults.sePool.slice() : FWB_AUDIO_FALLBACK_SE.slice())
         };
         markSyncDirty();
         FWB.emit("audioCorruptionStarted", { audioCorruption: Object.assign({}, s.audioCorruption) });
@@ -3021,7 +3303,16 @@
     FWB.setVisualDistortion = function(options) {
         if (access().disableFlicker) return false;
         const s = state();
-        s.visualDistortion = normalizeVisualDistortionOptions(options || {});
+        options = options || {};
+        const vdDefaults = getStyleValue(s, "presence", "visualDistortionDefaults") || {};
+        const merged = {};
+        ["breathAmount", "breathSpeed", "rippleAmount", "zoomWobble", "rotationWobble", "warpAmount"].forEach(key => {
+            if (options[key] !== undefined) merged[key] = options[key];
+            else if (vdDefaults[key] !== undefined) merged[key] = vdDefaults[key];
+            else merged[key] = options[key];
+        });
+        merged.duration = options.duration || options.frames || options.remaining || 300;
+        s.visualDistortion = normalizeVisualDistortionOptions(merged);
         markSyncDirty();
         FWB.emit("visualDistortionStarted", { visualDistortion: Object.assign({}, s.visualDistortion) });
         return true;
@@ -3829,7 +4120,7 @@
             blue.blendMode = profileBlendMode("screen");
             container.addChild(red);
             container.addChild(blue);
-            const offset = Number(profile(crack.stage).chromaticOffset || 2);
+            const offset = Number(crack.chromaticOffset !== undefined ? crack.chromaticOffset : profile(crack.stage).chromaticOffset || 2);
             container._fwbSprites.push({ sprite: red, x: -offset, y: 0, tint: 0xff7777, alpha: 0.25 });
             container._fwbSprites.push({ sprite: blue, x: offset, y: 0, tint: 0x77aaff, alpha: 0.25 });
         }
@@ -3870,10 +4161,13 @@
 
     function updateStaticAndScanlines(overlay) {
         if (!overlay || !overlay._fwbStatic || !overlay._fwbScanlines) return;
+        const s = state();
         const stage = highestActiveStage();
         const p = stage > 0 ? profile(stage) : null;
-        const staticAmount = p ? Number(p.staticNoise || 0) : 0;
-        const scanAmount = p ? Number(p.scanlines || 0) : 0;
+        const packStatic = getStyleValue(s, "cracks", "staticNoise", null);
+        const packScanlines = getStyleValue(s, "cracks", "scanlines", null);
+        const staticAmount = packStatic !== null ? Number(packStatic) : (p ? Number(p.staticNoise || 0) : 0);
+        const scanAmount = packScanlines !== null ? Number(packScanlines) : (p ? Number(p.scanlines || 0) : 0);
 
         if (stage <= 0 || access().disableFlicker) {
             overlay._fwbStatic.clear();
@@ -3929,7 +4223,16 @@
         overlay._fwbDebugText.visible = true;
         overlay._fwbDebugText.x = 8;
         overlay._fwbDebugText.y = 8;
-        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}${s.sequencePaused ? " PAUSED" : ""}  Queue: ${(s.sequenceQueue || []).length}\nTriggers: ${(s.triggerRules || []).length} Last: ${s.lastTriggerId || "none"}\nUI: ${s.uiCorruptionLevel || 0}  Control: ${(s.controlDistortion && s.controlDistortion.enabled) ? s.controlDistortion.remaining : 0}\nAudio: ${s.audioCorruption && s.audioCorruption.enabled ? s.audioCorruption.remaining : 0}  BattleLog: ${s.battleBreaks ? s.battleBreaks.corruptLogLines : 0}\nVisual: ${s.visualDistortion && s.visualDistortion.enabled ? s.visualDistortion.remaining : 0}  FakeCrash: ${s.fakeCrash && s.fakeCrash.enabled ? s.fakeCrash.remaining : 0}  Snapshots: ${(s.debugSnapshotHistory || []).length}`;
+        const styleLines = [];
+        const sp = s.stylePacks || {};
+        if (sp.cracks) styleLines.push(`cracks=${sp.cracks}`);
+        if (sp.overlays) styleLines.push(`overlays=${sp.overlays}`);
+        if (sp.ui) styleLines.push(`ui=${sp.ui}`);
+        if (sp.audio) styleLines.push(`audio=${sp.audio}`);
+        if (sp.presence) styleLines.push(`presence=${sp.presence}`);
+        if (sp.sequences) styleLines.push(`seq=${sp.sequences}`);
+        if (s.stylePreview && s.stylePreview.active) styleLines.push(`PREVIEW:${s.stylePreview.recipeName}(${s.stylePreview.remaining})`);
+        overlay._fwbDebugText.text = `FWB v${VERSION}\nStage: ${s.stage}  Breach: ${Math.round(s.breachMeter)}${s.breachLocked ? " LOCKED" : ""}  Presence: ${Math.round(s.presence || 0)} (${s.presenceTier || presenceTierName(s.presence)})\nNarrative: ${s.narrativeState || "neutral"}\nMode: ${s.mode}  Locked: ${s.locked}  Input: ${s.inputLockFrames || 0}\nCracks: ${s.cracks.length}\nSeq: ${s.sequence ? s.sequence.name : "none"}${s.sequencePaused ? " PAUSED" : ""}  Queue: ${(s.sequenceQueue || []).length}\nTriggers: ${(s.triggerRules || []).length} Last: ${s.lastTriggerId || "none"}\nUI: ${s.uiCorruptionLevel || 0}  Control: ${(s.controlDistortion && s.controlDistortion.enabled) ? s.controlDistortion.remaining : 0}\nAudio: ${s.audioCorruption && s.audioCorruption.enabled ? s.audioCorruption.remaining : 0}  BattleLog: ${s.battleBreaks ? s.battleBreaks.corruptLogLines : 0}\nVisual: ${s.visualDistortion && s.visualDistortion.enabled ? s.visualDistortion.remaining : 0}  FakeCrash: ${s.fakeCrash && s.fakeCrash.enabled ? s.fakeCrash.remaining : 0}  Snapshots: ${(s.debugSnapshotHistory || []).length}${styleLines.length ? "\nStyles: " + styleLines.join(" ") : ""}`;
     }
 
     function updateOverlay(scene) {
@@ -4113,10 +4416,14 @@
         const intensity = presenceIntensity(0.85);
         const roll = Math.random();
 
+        const preferredSeqs = getStyleValue(s, "presence", "preferredSequences", []);
+        const hostileSeq = preferredSeqs.length > 2 ? preferredSeqs[2] : (preferredSeqs.length > 0 ? preferredSeqs[0] : "System Failure");
+        const directSeq = preferredSeqs.length > 1 ? preferredSeqs[1] : (preferredSeqs.length > 0 ? preferredSeqs[0] : "Player Spotted");
+
         if (tierLevel >= 3 && roll > 0.82) {
-            FWB.runSequence("System Failure");
+            FWB.runSequence(hostileSeq);
         } else if (tierLevel >= 2 && roll > 0.76) {
-            FWB.runSequence("Player Spotted");
+            FWB.runSequence(directSeq);
         } else if (roll < 0.34) {
             FWB.pulse(randomInt(25, 55 + tierLevel * 10), randomRange(0.15, 0.35 + intensity * 0.35));
         } else if (roll < 0.72) {
@@ -4155,6 +4462,7 @@
         updateFakeCrash(scene);
         updateRandomSubtle(scene);
         updateIdleTracking(scene);
+        updateStylePreview(state());
         syncVariablesAndSwitches();
     };
 
@@ -5035,6 +5343,7 @@
         if (!s || typeof s !== "object") issues.push(validationIssue("error", "STATE_MISSING", "FourthWallBreaks state is missing."));
         if (s && !s.accessibility) issues.push(validationIssue("warn", "ACCESSIBILITY_MISSING", "Accessibility state is missing and will be migrated."));
         if (s && !s.trackers) issues.push(validationIssue("warn", "TRACKERS_MISSING", "Tracker state is missing and will be migrated."));
+        if (s && (!s.stylePacks || typeof s.stylePacks !== "object")) issues.push(validationIssue("warn", "STYLEPACKS_MISSING", "Style packs state is missing and will be migrated."));
         return {
             ok: !issues.some(issue => issue.level === "error"),
             version: VERSION,
@@ -5063,6 +5372,11 @@
         s.audioCorruption = null;
         s.visualDistortion = null;
         s.fakeCrash = null;
+        if (s.stylePreview && s.stylePreview.active) {
+            const prev = s.stylePreview.previous || {};
+            STYLE_CHANNELS.forEach(ch => setStylePack(s, ch, prev[ch] || "", { silent: true }));
+            s.stylePreview = null;
+        }
         markSyncDirty();
         FWB.emit("runtimeReset", {});
         return true;
@@ -5083,6 +5397,11 @@
         if (FWB.clearVisualDistortion) FWB.clearVisualDistortion();
         if (FWB.clearUiCorruption) FWB.clearUiCorruption();
         if (FWB.stopSequence) FWB.stopSequence(true);
+        if (s.stylePreview && s.stylePreview.active) {
+            const prev = s.stylePreview.previous || {};
+            STYLE_CHANNELS.forEach(ch => setStylePack(s, ch, prev[ch] || "", { silent: true }));
+            s.stylePreview = null;
+        }
         const fc = s.fakeCrash || {};
         if (fc.enabled) {
             s.fakeCrash = { enabled: false, remaining: 0, duration: 0, message: "", returnStage: 0, hasMessaged: false };
@@ -5121,7 +5440,8 @@
             memory: s.memory || {},
             flags: s.flags || {},
             customSequences: Object.assign({}, SEQUENCES),
-            triggers: s.triggerRules || []
+            triggers: s.triggerRules || [],
+            stylePacks: Object.assign({}, s.stylePacks || {})
         }, null, 2);
     };
 
@@ -5214,6 +5534,8 @@
             inputLockFrames: s.inputLockFrames,
             safeMode: !!s.safeMode,
             accessibility: s.accessibility,
+            stylePacks: Object.assign({}, s.stylePacks || {}),
+            stylePreview: s.stylePreview ? { active: s.stylePreview.active, remaining: s.stylePreview.remaining, recipeName: s.stylePreview.recipeName } : null,
             validation: FWB.validateConfig()
         };
     };
@@ -5312,6 +5634,43 @@
         console.log(`[${PLUGIN_NAME}] Config validation`, FWB.validateConfig());
     });
 
+    // Plugin commands for v5.0.0 Style Pack Matrix
+    PluginManager.registerCommand(PLUGIN_NAME, "SetStylePack", args => {
+        FWB.setStylePack(argString(args, "channel", "cracks"), argString(args, "packName", ""));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ClearStylePack", args => {
+        FWB.clearStylePack(argString(args, "channel", "cracks"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ApplyStyleRecipe", args => {
+        FWB.applyStyleRecipe(argString(args, "recipeName", "classic"));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "PreviewStyleRecipe", args => {
+        FWB.previewStyleRecipe(argString(args, "recipeName", "classic"), argNumber(args, "duration", 600));
+    });
+
+    PluginManager.registerCommand(PLUGIN_NAME, "ListStylePacks", args => {
+        const channel = argString(args, "channel", "cracks");
+        const packs = FWB.listStylePacks(channel);
+        console.log(`[${PLUGIN_NAME}] Style packs for ${channel}:`, packs);
+    });
+
+    // Style Pack public API
+    FWB.registerStylePack = function(channel, name, data) { return registerStylePack(channel, name, data); };
+    FWB.unregisterStylePack = function(channel, name) { return unregisterStylePack(channel, name); };
+    FWB.listStylePacks = function(channel) { return listStylePacks(channel); };
+    FWB.getStylePack = function(channel, name) { return getStylePack(channel, name); };
+    FWB.setStylePack = function(channel, name, options) { return setStylePack(state(), channel, name, options); };
+    FWB.getActiveStylePacks = function() { return getActiveStylePacks(state()); };
+    FWB.clearStylePack = function(channel) { return clearStylePack(state(), channel); };
+    FWB.registerStyleRecipe = function(name, recipe) { return registerStyleRecipe(name, recipe); };
+    FWB.applyStyleRecipe = function(name, options) { return applyStyleRecipe(state(), name, options); };
+    FWB.previewStyleRecipe = function(name, frames) { return previewStyleRecipe(state(), name, frames); };
+    FWB.listStyleRecipes = function() { return listStyleRecipes(); };
+    FWB.getStyleRecipe = function(name) { return getStyleRecipe(name); };
+    FWB.getStyleValue = function(channel, key, fallback) { return getStyleValue(state(), channel, key, fallback); };
 
     // endregion v4.13.0 Release Hardening: safety, config, debug reporters, compatibility
     // region Public read-only helpers
@@ -5342,6 +5701,13 @@
         for (let stage = 1; stage <= 4; stage++) {
             ImageManager.loadPicture(profile(stage).image);
         }
+        // Preload style pack overlay assets
+        const overlayImages = [
+            "FourthWall_07_StaticVeil", "FourthWall_08_EdgePressure",
+            "FourthWall_09_PresenceMark", "FourthWall_10_DigitalSplit",
+            "FourthWall_11_CosmicDust", "FourthWall_12_BloodVignette"
+        ];
+        overlayImages.forEach(name => ImageManager.loadPicture(name));
     }
 
     logDebug(`loaded v${VERSION}`);

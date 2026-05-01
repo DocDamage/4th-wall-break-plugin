@@ -94,6 +94,41 @@ FourthWallBreaks.setVisualDistortion({ breathAmount: 0.02, duration: 300 })
 FourthWallBreaks.fakeCrash({ message: "Runtime breach detected.", duration: 180, returnStage: 2 })
 ```
 
+## Style Pack Tests
+
+Register and activate custom style packs:
+
+```js
+FourthWallBreaks.registerStylePack("myCrackPack", "cracks", { stages: ["Custom_01", "Custom_02"] })
+FourthWallBreaks.setStylePack("cracks", "myCrackPack")
+FourthWallBreaks.getActiveStylePacks()
+FourthWallBreaks.clearStylePack("cracks")
+```
+
+Register and apply style recipes:
+
+```js
+FourthWallBreaks.registerStyleRecipe("HorrorRecipe", {
+  cracks: "horrorCracks",
+  overlays: "horrorOverlays",
+  ui: "horrorUI",
+  audio: "horrorAudio",
+  presence: "horrorPresence",
+  sequences: "horrorSequences"
+})
+FourthWallBreaks.applyStyleRecipe("HorrorRecipe")
+FourthWallBreaks.previewStyleRecipe("HorrorRecipe")
+FourthWallBreaks.listStylePacks()
+FourthWallBreaks.listStyleRecipes()
+```
+
+Test plugin commands:
+- `SetStylePack cracks myCrackPack`
+- `ClearStylePack cracks`
+- `ApplyStyleRecipe HorrorRecipe`
+- `PreviewStyleRecipe HorrorRecipe`
+- `ListStylePacks`
+
 ## Hardening Tests
 
 ```js

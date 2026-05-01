@@ -24,7 +24,14 @@ const copyIfExists = (from, to) => {
 // Copy the bundled file as the release plugin
 copyIfExists(path.join(root, "js/plugins/FourthWallBreaks.bundled.js"), path.join(outDir, "js/plugins/FourthWallBreaks.js"));
 
-["FourthWall_01_HairlineFracture.png","FourthWall_02_RealityCrack.png","FourthWall_03_ScreenShatter.png","FourthWall_04_FullBreach.png"].forEach(name => {
+[
+  "FourthWall_01_HairlineFracture.png","FourthWall_02_RealityCrack.png",
+  "FourthWall_03_ScreenShatter.png","FourthWall_04_FullBreach.png",
+  "FourthWall_05_ThinTear.png","FourthWall_06_DeepFracture.png",
+  "FourthWall_07_StaticVeil.png","FourthWall_08_EdgePressure.png",
+  "FourthWall_09_PresenceMark.png","FourthWall_10_DigitalSplit.png",
+  "FourthWall_11_CosmicDust.png","FourthWall_12_BloodVignette.png"
+].forEach(name => {
   copyIfExists(path.join(root, "img/pictures", name), path.join(outDir, "img/pictures", name));
 });
 

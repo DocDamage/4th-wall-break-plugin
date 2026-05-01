@@ -1,5 +1,23 @@
 # Changelog
 
+## v5.0.0
+
+Style Pack Matrix system.
+
+- Added 6-channel style pack matrix (cracks, overlays, ui, audio, presence, sequences)
+- Added `FourthWallBreaks.registerStylePack` API for registering custom packs
+- Added `FourthWallBreaks.setStylePack` API for activating packs per channel
+- Added `FourthWallBreaks.getActiveStylePacks` API for inspecting active packs
+- Added `FourthWallBreaks.clearStylePack` API for clearing channel packs
+- Added `FourthWallBreaks.registerStyleRecipe` API for bundling multi-channel combinations
+- Added `FourthWallBreaks.applyStyleRecipe` API for applying recipes
+- Added `FourthWallBreaks.previewStyleRecipe` API for previewing recipes without persisting
+- Added `FourthWallBreaks.listStylePacks` API for listing registered packs
+- Added `FourthWallBreaks.listStyleRecipes` API for listing registered recipes
+- Added plugin commands: `SetStylePack`, `ClearStylePack`, `ApplyStyleRecipe`, `PreviewStyleRecipe`, `ListStylePacks`
+- Added built-in style packs for all 6 channels
+- Added `stylePacks` state field with save migration
+
 ## v4.13.0
 
 Release hardening and packaging pass.

@@ -43,6 +43,81 @@ js/plugins/FourthWallBreaks.bundled.js
 
 All save errors, crashes, corruption, and system messages are safe in-game illusions. The plugin does not modify real files outside normal RPG Maker save data.
 
+## Style Pack API (v5.0.0)
+
+The Style Pack Matrix system lets you swap the look, sound, and behavior of FourthWallBreaks across 6 independent channels:
+
+- `cracks` — crack stage images and transitions
+- `overlays` — overlay effects and render styles
+- `ui` — UI corruption themes and fake system messages
+- `audio` — audio corruption profiles
+- `presence` — presence tier behavior and thresholds
+- `sequences` — sequence definitions and pools
+
+Register a custom pack for any channel:
+
+```js
+FourthWallBreaks.registerStylePack(id, channel, definition)
+```
+
+Activate a pack on a channel:
+
+```js
+FourthWallBreaks.setStylePack(channel, packId)
+```
+
+Clear a channel back to defaults:
+
+```js
+FourthWallBreaks.clearStylePack(channel)
+```
+
+Inspect active packs:
+
+```js
+FourthWallBreaks.getActiveStylePacks()
+// => { cracks: "...", overlays: "...", ... }
+```
+
+Bundle multiple channels into a named recipe:
+
+```js
+FourthWallBreaks.registerStyleRecipe(id, {
+  cracks: "packId",
+  overlays: "packId",
+  ui: "packId",
+  audio: "packId",
+  presence: "packId",
+  sequences: "packId"
+})
+```
+
+Apply or preview a recipe:
+
+```js
+FourthWallBreaks.applyStyleRecipe("RecipeId")   // persists to save
+FourthWallBreaks.previewStyleRecipe("RecipeId") // temporary preview
+```
+
+List registered packs and recipes:
+
+```js
+FourthWallBreaks.listStylePacks()
+FourthWallBreaks.listStyleRecipes()
+```
+
+### Plugin Commands
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `SetStylePack` | `channel packId` | Activate a pack on a channel |
+| `ClearStylePack` | `channel` | Clear a channel back to defaults |
+| `ApplyStyleRecipe` | `recipeId` | Apply a registered recipe |
+| `PreviewStyleRecipe` | `recipeId` | Preview a recipe without saving |
+| `ListStylePacks` | (none) | Log all registered packs to console |
+
+Style pack state is stored in the save file under `stylePacks` and migrated automatically when loading older saves.
+
 ## Refactoring Progress (as of April 30, 2026)
 
 The plugin is being refactored for maintainability and modularity. The development entry at `js/plugins/FourthWallBreaks.js` is now a small loader, `js/plugins/FourthWallBreaks.runtime.js` holds the current monolithic runtime source, and `js/plugins/FourthWallBreaks.bundled.js` is generated for local loader use and release packaging. Extracted module files are present as work-in-progress reference slices and should not be installed directly.

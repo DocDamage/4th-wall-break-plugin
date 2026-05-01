@@ -25,7 +25,7 @@
     "use strict";
 
     const PLUGIN_NAME = "FourthWallBreaks";
-    const VERSION = "4.13.0";
+    const VERSION = "5.0.0";
     const root = (typeof window !== "undefined") ? window : globalThis;
 
     if (root.FourthWallBreaks && root.FourthWallBreaks.__runtimeLoaded) return;
